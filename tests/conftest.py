@@ -31,7 +31,9 @@ def sample_config(temp_dir):
         "logs_dir": str(temp_dir / "logs"),
         "schemas_dir": "schemas",
         "log_level": "INFO",
-        "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        "csv_delimiter": ",",
+        "output_delimiter": "|"
     }
     
     config_file = temp_dir / "config.json"

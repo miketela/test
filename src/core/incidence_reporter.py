@@ -364,7 +364,7 @@ class IncidenceReporter:
                     file_path,
                     index=False,
                     encoding='utf-8',
-                    sep=self.config.csv_separator,
+                    sep=self.config.csv_delimiter,
                     quoting=1,  # QUOTE_ALL
                     date_format='%Y%m%d'
                 )
@@ -442,7 +442,7 @@ class IncidenceReporter:
                 file_path,
                 index=False,
                 encoding='utf-8',
-                sep=self.config.csv_separator,
+                sep=self.config.csv_delimiter,
                 quoting=1
             )
             

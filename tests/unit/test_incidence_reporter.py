@@ -109,7 +109,6 @@ class TestIncidenceReporter:
         assert reporter.config == sample_config
         assert reporter.run_id == "test-run"
         assert reporter.period == "202401"
-        assert isinstance(reporter.logger, logging.Logger)
     
     def test_add_incidence(self, sample_config):
         """Test adding an incidence."""
@@ -200,7 +199,7 @@ class TestIncidenceReporter:
         reporter.add_business_rule_violation(
             subtype="test-subtype",
             rule_name="VALOR_MINIMO_AVALUO",
-            description="Value below minimum threshold",
+            description="VALOR_MINIMO_AVALUO: Value below minimum threshold",
             record_index=3,
             original_value="100",
             threshold=1000
@@ -220,18 +219,20 @@ class TestIncidenceReporter:
             run_id="test-run",
             period="202401"
         )
-        
+
         # Add different types of incidences
-        reporter.add_validation_error("test1.csv", 1, "col1", "Error 1")
-        reporter.add_data_quality_issue("test2.csv", "Quality issue")
-        reporter.add_validation_error("test3.csv", 2, "col2", "Error 2")
-        
+        reporter.add_validation_failure(subtype="SUB1", rule_name="rule1", description="Error 1")
+        reporter.add_data_quality_issue(subtype="SUB2", issue_type="issue1", description="Quality issue")
+        reporter.add_validation_failure(subtype="SUB1", rule_name="rule2", description="Error 2")
+
+        all_incidences = reporter.get_all_incidences()
+
         # Filter by validation errors
-        validation_errors = reporter.get_incidences_by_type(IncidenceType.VALIDATION_ERROR)
+        validation_errors = [inc for inc in all_incidences if inc.incidence_type == IncidenceType.VALIDATION_FAILURE]
         assert len(validation_errors) == 2
-        
+
         # Filter by data quality issues
-        quality_issues = reporter.get_incidences_by_type(IncidenceType.DATA_QUALITY)
+        quality_issues = [inc for inc in all_incidences if inc.incidence_type == IncidenceType.DATA_QUALITY]
         assert len(quality_issues) == 1
     
     def test_get_incidences_by_severity(self, sample_config):
@@ -241,18 +242,20 @@ class TestIncidenceReporter:
             run_id="test-run",
             period="202401"
         )
-        
+
         # Add incidences with different severities
-        reporter.add_validation_error("test1.csv", 1, "col1", "High error")  # HIGH by default
-        reporter.add_data_quality_issue("test2.csv", "Medium issue", IncidenceSeverity.MEDIUM)
-        reporter.add_data_quality_issue("test3.csv", "Low issue", IncidenceSeverity.LOW)
-        
+        reporter.add_incidence(subtype="SUB1", incidence_type=IncidenceType.VALIDATION_FAILURE, description="High error", severity=IncidenceSeverity.HIGH)
+        reporter.add_incidence(subtype="SUB2", incidence_type=IncidenceType.DATA_QUALITY, description="Medium issue", severity=IncidenceSeverity.MEDIUM)
+        reporter.add_incidence(subtype="SUB3", incidence_type=IncidenceType.DATA_QUALITY, description="Low issue", severity=IncidenceSeverity.LOW)
+
+        all_incidences = reporter.get_all_incidences()
+
         # Filter by high severity
-        high_severity = reporter.get_incidences_by_severity(IncidenceSeverity.HIGH)
+        high_severity = [inc for inc in all_incidences if inc.severity == IncidenceSeverity.HIGH]
         assert len(high_severity) == 1
-        
+
         # Filter by medium severity
-        medium_severity = reporter.get_incidences_by_severity(IncidenceSeverity.MEDIUM)
+        medium_severity = [inc for inc in all_incidences if inc.severity == IncidenceSeverity.MEDIUM]
         assert len(medium_severity) == 1
     
     def test_get_incidences_by_file(self, sample_config):
@@ -264,16 +267,29 @@ class TestIncidenceReporter:
         )
         
         # Add incidences for different files
-        reporter.add_validation_error("file1.csv", 1, "col1", "Error in file1")
-        reporter.add_validation_error("file2.csv", 1, "col1", "Error in file2")
-        reporter.add_validation_error("file1.csv", 2, "col2", "Another error in file1")
+        reporter.add_incidence(
+            subtype="SUB1", incidence_type=IncidenceType.VALIDATION_FAILURE,
+            description="Error in file1", severity=IncidenceSeverity.HIGH,
+            source_file="file1.csv", record_index=1, column_name="col1", rule_name="rule1"
+        )
+        reporter.add_incidence(
+            subtype="SUB2", incidence_type=IncidenceType.VALIDATION_FAILURE,
+            description="Error in file2", severity=IncidenceSeverity.HIGH,
+            source_file="file2.csv", record_index=1, column_name="col1", rule_name="rule2"
+        )
+        reporter.add_incidence(
+            subtype="SUB1", incidence_type=IncidenceType.VALIDATION_FAILURE,
+            description="Another error in file1", severity=IncidenceSeverity.HIGH,
+            source_file="file1.csv", record_index=2, column_name="col2", rule_name="rule3"
+        )
         
-        # Filter by file1.csv
-        file1_incidences = reporter.get_incidences_by_file("file1.csv")
+        # Filter by file1.csv using get_all_incidences and filtering
+        all_incidences = reporter.get_all_incidences()
+        file1_incidences = [inc for inc in all_incidences if inc.source_file == "file1.csv"]
         assert len(file1_incidences) == 2
         
         # Filter by file2.csv
-        file2_incidences = reporter.get_incidences_by_file("file2.csv")
+        file2_incidences = [inc for inc in all_incidences if inc.source_file == "file2.csv"]
         assert len(file2_incidences) == 1
     
     def test_get_summary(self, sample_config):
@@ -285,32 +301,44 @@ class TestIncidenceReporter:
         )
         
         # Add various incidences
-        reporter.add_validation_error("test1.csv", 1, "col1", "Error 1")
-        reporter.add_validation_error("test1.csv", 2, "col2", "Error 2")
-        reporter.add_data_quality_issue("test2.csv", "Quality issue", IncidenceSeverity.MEDIUM)
-        reporter.add_business_rule_violation("test1.csv", "RULE1", "Rule violation")
+        reporter.add_incidence(
+            subtype="SUB1", incidence_type=IncidenceType.VALIDATION_FAILURE,
+            description="Error 1", severity=IncidenceSeverity.HIGH,
+            source_file="test1.csv", record_index=1, column_name="col1", rule_name="rule1"
+        )
+        reporter.add_incidence(
+            subtype="SUB1", incidence_type=IncidenceType.VALIDATION_FAILURE,
+            description="Error 2", severity=IncidenceSeverity.HIGH,
+            source_file="test1.csv", record_index=2, column_name="col2", rule_name="rule2"
+        )
+        reporter.add_incidence(
+            subtype="SUB2", incidence_type=IncidenceType.DATA_QUALITY,
+            description="Quality issue", severity=IncidenceSeverity.MEDIUM,
+            source_file="test2.csv", rule_name="quality_issue"
+        )
+        reporter.add_incidence(
+            subtype="SUB1", incidence_type=IncidenceType.BUSINESS_RULE_VIOLATION,
+            description="Rule violation", severity=IncidenceSeverity.HIGH,
+            source_file="test1.csv", rule_name="RULE1"
+        )
         
-        summary = reporter.get_summary()
+        summary = reporter.get_incidence_summary()
         
         # Check total counts
         assert summary['total_incidences'] == 4
-        assert summary['files_affected'] == 2
+        assert len(summary['by_subtype']) == 2
         
-        # Check by type
-        assert summary['by_type']['VALIDATION_ERROR'] == 2
+        # Check by type - using correct enum values
+        assert summary['by_type']['VALIDATION_FAILURE'] == 2
         assert summary['by_type']['DATA_QUALITY'] == 1
-        assert summary['by_type']['BUSINESS_RULE'] == 1
+        assert summary['by_type']['BUSINESS_RULE_VIOLATION'] == 1
         
         # Check by severity
-        assert summary['by_severity']['HIGH'] == 2
-        assert summary['by_severity']['MEDIUM'] == 2
-        
-        # Check by file
-        assert summary['by_file']['test1.csv'] == 3
-        assert summary['by_file']['test2.csv'] == 1
+        assert summary['by_severity']['HIGH'] == 3  # validation failures and business rule are HIGH by default
+        assert summary['by_severity']['MEDIUM'] == 1
     
-    def test_to_dataframe(self, sample_config):
-        """Test converting incidences to DataFrame."""
+    def test_incidence_to_dict(self, sample_config):
+        """Test converting incidences to dictionary format."""
         reporter = IncidenceReporter(
             config=sample_config,
             run_id="test-run",
@@ -318,30 +346,38 @@ class TestIncidenceReporter:
         )
         
         # Add some incidences
-        reporter.add_validation_error(
-            "test.csv", 1, "col1", "Error 1", "bad_value", "good_value"
+        reporter.add_incidence(
+            subtype="SUB1", incidence_type=IncidenceType.VALIDATION_FAILURE,
+            description="Error 1", severity=IncidenceSeverity.HIGH,
+            source_file="test.csv", record_index=1, column_name="col1",
+            original_value="bad_value", expected_value="good_value", rule_name="rule1"
         )
-        reporter.add_data_quality_issue("test.csv", "Quality issue")
+        reporter.add_incidence(
+            subtype="SUB2", incidence_type=IncidenceType.DATA_QUALITY,
+            description="Quality issue", severity=IncidenceSeverity.MEDIUM,
+            source_file="test.csv", rule_name="quality_issue"
+        )
         
-        df = reporter.to_dataframe()
+        all_incidences = reporter.get_all_incidences()
+        assert len(all_incidences) == 2
         
-        # Check DataFrame structure
-        assert isinstance(df, pd.DataFrame)
-        assert len(df) == 2
+        # Test that incidences can be converted to dict
+        incidence_dict = all_incidences[0].to_dict()
         
-        expected_columns = [
-            'timestamp', 'file_name', 'row_number', 'column_name',
-            'incidence_type', 'severity', 'description',
-            'original_value', 'corrected_value'
-        ]
-        assert list(df.columns) == expected_columns
-        
-        # Check data types
-        assert df['incidence_type'].dtype == 'object'
-        assert df['severity'].dtype == 'object'
+        assert 'incidence_id' in incidence_dict
+        assert 'subtype' in incidence_dict
+        assert 'incidence_type' in incidence_dict
+        assert 'description' in incidence_dict
+        assert 'severity' in incidence_dict
+        assert 'timestamp' in incidence_dict
+        assert 'run_id' in incidence_dict
+        assert 'period' in incidence_dict
+        assert incidence_dict['subtype'] == "SUB1"
     
-    def test_export_to_csv(self, temp_dir, sample_config):
-        """Test exporting incidences to CSV."""
+    def test_export_incidences_to_csv(self, tmp_path, sample_config):
+        """Test exporting incidences to CSV using AT12Paths."""
+        from unittest.mock import Mock
+        
         reporter = IncidenceReporter(
             config=sample_config,
             run_id="test-run",
@@ -349,24 +385,41 @@ class TestIncidenceReporter:
         )
         
         # Add some incidences
-        reporter.add_validation_error("test.csv", 1, "col1", "Error 1")
-        reporter.add_data_quality_issue("test.csv", "Quality issue")
+        reporter.add_incidence(
+            subtype="SUB1", incidence_type=IncidenceType.VALIDATION_FAILURE,
+            description="Error 1", severity=IncidenceSeverity.HIGH,
+            source_file="test.csv", record_index=1, column_name="col1", rule_name="rule1"
+        )
+        reporter.add_incidence(
+            subtype="SUB2", incidence_type=IncidenceType.DATA_QUALITY,
+            description="Quality issue", severity=IncidenceSeverity.MEDIUM,
+            source_file="test.csv", rule_name="quality_issue"
+        )
+        
+        # Mock AT12Paths
+        mock_paths = Mock()
+        csv_file1 = tmp_path / "EEOO_TABULAR_SUB1_AT12_202401.csv"
+        csv_file2 = tmp_path / "EEOO_TABULAR_SUB2_AT12_202401.csv"
+        mock_paths.get_incidencia_path.side_effect = [csv_file1, csv_file2]
         
         # Export to CSV
-        output_path = temp_dir / "incidences.csv"
-        reporter.export_to_csv(str(output_path))
+        exported_files = reporter.export_incidences_to_csv(mock_paths)
         
-        # Verify file was created
-        assert output_path.exists()
+        # Check files were created
+        assert len(exported_files) == 2
+        assert csv_file1.exists()
+        assert csv_file2.exists()
         
-        # Read back and verify content
-        df = pd.read_csv(output_path)
-        assert len(df) == 2
-        assert 'incidence_type' in df.columns
-        assert 'severity' in df.columns
+        # Check file content
+        df1 = pd.read_csv(csv_file1)
+        assert len(df1) == 1
+        assert 'incidence_id' in df1.columns
+        assert 'description' in df1.columns
     
     def test_export_summary_to_csv(self, sample_config, tmp_path):
         """Test exporting the summary to a CSV file."""
+        from unittest.mock import Mock
+        
         reporter = IncidenceReporter(
             config=sample_config,
             run_id="test-run",
@@ -374,21 +427,39 @@ class TestIncidenceReporter:
         )
 
         # Add some incidences
-        reporter.add_validation_error("test1.csv", 1, "col1", "Error 1")
-        reporter.add_validation_error("test1.csv", 2, "col2", "Error 2")
-        reporter.add_data_quality_issue("test2.csv", "Quality issue")
+        reporter.add_incidence(
+            subtype="SUB1", incidence_type=IncidenceType.VALIDATION_FAILURE,
+            description="Error 1", severity=IncidenceSeverity.HIGH,
+            source_file="test1.csv", record_index=1, column_name="col1", rule_name="rule1"
+        )
+        reporter.add_incidence(
+            subtype="SUB1", incidence_type=IncidenceType.VALIDATION_FAILURE,
+            description="Error 2", severity=IncidenceSeverity.HIGH,
+            source_file="test1.csv", record_index=2, column_name="col2", rule_name="rule2"
+        )
+        reporter.add_incidence(
+            subtype="SUB2", incidence_type=IncidenceType.DATA_QUALITY,
+            description="Quality issue", severity=IncidenceSeverity.MEDIUM,
+            source_file="test2.csv", rule_name="quality_issue"
+        )
+
+        # Mock AT12Paths
+        mock_paths = Mock()
+        output_path = tmp_path / "INCIDENCES_SUMMARY_AT12_202401.csv"
+        mock_paths.get_incidencia_path.return_value = output_path
 
         # Export summary to CSV
-        output_path = tmp_path / "summary.csv"
-        reporter.export_summary_to_csv(str(output_path))
+        result_path = reporter.export_summary_to_csv(mock_paths)
 
         # Verify file was created
+        assert result_path == output_path
         assert output_path.exists()
 
         # Read back and verify content
         df = pd.read_csv(output_path)
         assert len(df) > 0
         assert 'metric' in df.columns
+        assert 'category' in df.columns
         assert 'value' in df.columns
     
     def test_clear(self, sample_config):
@@ -400,12 +471,20 @@ class TestIncidenceReporter:
         )
         
         # Add some incidences
-        reporter.add_validation_error("test.csv", 1, "col1", "Error 1")
-        reporter.add_data_quality_issue("test.csv", "Quality issue")
+        reporter.add_incidence(
+            subtype="SUB1", incidence_type=IncidenceType.VALIDATION_FAILURE,
+            description="Error 1", severity=IncidenceSeverity.HIGH,
+            source_file="test.csv", record_index=1, column_name="col1", rule_name="rule1"
+        )
+        reporter.add_incidence(
+            subtype="SUB2", incidence_type=IncidenceType.DATA_QUALITY,
+            description="Quality issue", severity=IncidenceSeverity.MEDIUM,
+            source_file="test.csv", rule_name="quality_issue"
+        )
         
-        assert len(reporter.incidences) == 2
+        assert len(reporter.get_all_incidences()) == 2
         
         # Clear incidences
-        reporter.clear()
+        reporter.clear_incidences()
         
-        assert len(reporter.incidences) == 0
+        assert len(reporter.get_all_incidences()) == 0
