@@ -1,0 +1,122 @@
+{
+  "atom": "AT12",
+  "description": "Expected files for AT12 regulatory atom",
+  "subtypes": {
+    "BASE_AT12": {
+      "description": "Base AT12 data with loan and borrower information",
+      "patterns": [
+        "BASE_AT12_[YYYYMMDD].CSV",
+        "BASE_AT12_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "BASE_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "required": true,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
+    },
+    "TDC_AT12": {
+      "description": "TDC AT12 data with credit card guarantees information",
+      "patterns": [
+        "TDC_AT12_[YYYYMMDD].CSV",
+        "TDC_AT12_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "TDC_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "required": false,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
+    },
+    "VALORES_AT12": {
+      "description": "VALORES AT12 data with securities guarantees information",
+      "patterns": [
+        "VALORES_AT12_[YYYYMMDD].CSV",
+        "VALORES_AT12_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "VALORES_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "required": false,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
+    },
+    "SOBREGIRO_AT12": {
+      "description": "SOBREGIRO AT12 data with overdraft guarantees information",
+      "patterns": [
+        "SOBREGIRO_AT12_[YYYYMMDD].CSV",
+        "SOBREGIRO_AT12_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "SOBREGIRO_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "required": false,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
+    },
+    "GARANTIA_AUTOS_AT12": {
+      "description": "GARANTIA AUTOS AT12 data with auto guarantees information",
+      "patterns": [
+        "GARANTIA_AUTOS_AT12_[YYYYMMDD].CSV",
+        "GARANTIA_AUTOS_AT12_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "GARANTIA_AUTOS_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "required": false,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
+    },
+    "POLIZA_HIPOTECAS_AT12": {
+      "description": "POLIZA HIPOTECAS AT12 data with mortgage insurance information",
+      "patterns": [
+        "POLIZA_HIPOTECAS_AT12_[YYYYMMDD].CSV",
+        "POLIZA_HIPOTECAS_AT12_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "POLIZA_HIPOTECAS_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "required": false,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
+    },
+    "AFECTACIONES_AT12": {
+      "description": "AFECTACIONES AT12 data with loan affectations information",
+      "patterns": [
+        "AFECTACIONES_AT12_[YYYYMMDD].CSV",
+        "AFECTACIONES_AT12_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "AFECTACIONES_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "required": false,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
+    },
+    "VALOR_MINIMO_AVALUO_AT12": {
+      "description": "VALOR MINIMO AVALUO AT12 data with minimum appraisal value information",
+      "patterns": [
+        "VALOR_MINIMO_AVALUO_AT12_[YYYYMMDD].CSV",
+        "VALOR_MINIMO_AVALUO_AT12_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "VALOR_MINIMO_AVALUO_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "required": false,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
+    },
+    "AT02_CUENTAS": {
+      "description": "AT02 CUENTAS data with account information",
+      "patterns": [
+        "AT02_CUENTAS_[YYYYMMDD].CSV",
+        "AT02_CUENTAS_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "AT02_CUENTAS_[YYYYMMDD].(CSV|XLSX)",
+      "required": false,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
+    },
+    "AT03_CREDITOS": {
+      "description": "AT03 data required for AT12 verification processes",
+      "patterns": [
+        "AT03_CREDITOS_[YYYYMMDD].CSV",
+        "AT03_CREDITOS_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "AT03_CREDITOS_[YYYYMMDD].(CSV|XLSX)",
+      "required": false,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
+    }
+  },
+  "validation_rules": {
+    "filename_pattern": "^[A-Z_]+_\\d{8}\\.(CSV|XLSX)$",
+    "date_format": "YYYYMMDD",
+    "case_sensitive": false,
+    "supported_extensions": [".csv", ".xlsx"]
+  }
+}

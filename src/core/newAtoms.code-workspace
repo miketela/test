@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "newAtoms",
+			"path": "../.."
+		},
+		{
+			"name": "context",
+			"path": "../../../../Downloads/context"
+		}
+	],
+	"settings": {}
+}

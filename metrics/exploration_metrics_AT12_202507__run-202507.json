@@ -1,0 +1,797 @@
+{
+  "atom": "AT12",
+  "period": "2025-07",
+  "run_id": "202507",
+  "timestamp": "2025-08-27T14:39:29.714263",
+  "files_analyzed": 1,
+  "total_records": 0,
+  "file_metrics": {
+    "AT02_CUENTAS_20250701__run-202507.csv": {
+      "file_path": "/Users/macbook/Documents/newAtoms/data/raw/AT02_CUENTAS_20250701__run-202507.csv",
+      "file_name": "AT02_CUENTAS_20250701__run-202507.csv",
+      "file_size": 1013,
+      "file_mtime": "2025-08-27T14:38:15.197600",
+      "file_sha256": "93a5437cb150c39b26dc612459f7bd694d14fe38d729e0b35527b67696067cc8",
+      "row_count": 3,
+      "column_count": 31,
+      "headers": [
+        "fecha",
+        "cod_banco",
+        "cod_subsidiaria",
+        "tipo_deposito",
+        "numero_cuenta",
+        "cod_moneda",
+        "saldo_cuenta",
+        "fecha_apertura",
+        "fecha_vencimiento",
+        "tasa_interes",
+        "estado_cuenta",
+        "cod_cliente",
+        "tipo_cliente",
+        "cod_sucursal",
+        "cod_producto",
+        "limite_credito",
+        "saldo_disponible",
+        "fecha_ultimo_movimiento",
+        "numero_tarjeta",
+        "tipo_garantia",
+        "valor_garantia",
+        "cod_segmento",
+        "indicador_bloqueo",
+        "motivo_bloqueo",
+        "fecha_bloqueo",
+        "usuario_creacion",
+        "fecha_creacion",
+        "usuario_modificacion",
+        "fecha_modificacion",
+        "observaciones",
+        "campo_adicional"
+      ],
+      "column_metrics": [
+        {
+          "name": "fecha",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "2025-07-01",
+              3
+            ]
+          ],
+          "min_length": 10,
+          "max_length": 10,
+          "avg_length": 10.0,
+          "min_value": "2025-07-01",
+          "max_value": "2025-07-01",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "cod_banco",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "001",
+              2
+            ],
+            [
+              "002",
+              1
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "001",
+          "max_value": "002",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "cod_subsidiaria",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "001",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "001",
+          "max_value": "001",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "tipo_deposito",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "AH",
+              2
+            ],
+            [
+              "CC",
+              1
+            ]
+          ],
+          "min_length": 2,
+          "max_length": 2,
+          "avg_length": 2.0,
+          "min_value": "AH",
+          "max_value": "CC",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "numero_cuenta",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "1234567890",
+              1
+            ],
+            [
+              "1234567891",
+              1
+            ],
+            [
+              "1234567892",
+              1
+            ]
+          ],
+          "min_length": 10,
+          "max_length": 10,
+          "avg_length": 10.0,
+          "min_value": "1234567890",
+          "max_value": "1234567892",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "cod_moneda",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "PEN",
+              2
+            ],
+            [
+              "USD",
+              1
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "PEN",
+          "max_value": "USD",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "saldo_cuenta",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "1500.50",
+              1
+            ],
+            [
+              "2500.75",
+              1
+            ],
+            [
+              "750.25",
+              1
+            ]
+          ],
+          "min_length": 6,
+          "max_length": 7,
+          "avg_length": 6.67,
+          "min_value": "1500.50",
+          "max_value": "750.25",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "fecha_apertura",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "2023-01-15",
+              1
+            ],
+            [
+              "2023-02-20",
+              1
+            ],
+            [
+              "2023-03-10",
+              1
+            ]
+          ],
+          "min_length": 10,
+          "max_length": 10,
+          "avg_length": 10.0,
+          "min_value": "2023-01-15",
+          "max_value": "2023-03-10",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "fecha_vencimiento",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "2025-12-31",
+              3
+            ]
+          ],
+          "min_length": 10,
+          "max_length": 10,
+          "avg_length": 10.0,
+          "min_value": "2025-12-31",
+          "max_value": "2025-12-31",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "tasa_interes",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "2.5",
+              1
+            ],
+            [
+              "3.0",
+              1
+            ],
+            [
+              "2.0",
+              1
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "2.0",
+          "max_value": "3.0",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "estado_cuenta",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "A",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "A",
+          "max_value": "A",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "cod_cliente",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "CLI001",
+              1
+            ],
+            [
+              "CLI002",
+              1
+            ],
+            [
+              "CLI003",
+              1
+            ]
+          ],
+          "min_length": 6,
+          "max_length": 6,
+          "avg_length": 6.0,
+          "min_value": "CLI001",
+          "max_value": "CLI003",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "tipo_cliente",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "P",
+              2
+            ],
+            [
+              "E",
+              1
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "E",
+          "max_value": "P",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "cod_sucursal",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "SUC001",
+              2
+            ],
+            [
+              "SUC002",
+              1
+            ]
+          ],
+          "min_length": 6,
+          "max_length": 6,
+          "avg_length": 6.0,
+          "min_value": "SUC001",
+          "max_value": "SUC002",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "cod_producto",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "PROD001",
+              2
+            ],
+            [
+              "PROD002",
+              1
+            ]
+          ],
+          "min_length": 7,
+          "max_length": 7,
+          "avg_length": 7.0,
+          "min_value": "PROD001",
+          "max_value": "PROD002",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "limite_credito",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "5000.00",
+              1
+            ],
+            [
+              "10000.00",
+              1
+            ],
+            [
+              "2000.00",
+              1
+            ]
+          ],
+          "min_length": 7,
+          "max_length": 8,
+          "avg_length": 7.33,
+          "min_value": "10000.00",
+          "max_value": "5000.00",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "saldo_disponible",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "3500.00",
+              1
+            ],
+            [
+              "7500.00",
+              1
+            ],
+            [
+              "1250.00",
+              1
+            ]
+          ],
+          "min_length": 7,
+          "max_length": 7,
+          "avg_length": 7.0,
+          "min_value": "1250.00",
+          "max_value": "7500.00",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "fecha_ultimo_movimiento",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "2025-06-30",
+              1
+            ],
+            [
+              "2025-06-29",
+              1
+            ],
+            [
+              "2025-06-28",
+              1
+            ]
+          ],
+          "min_length": 10,
+          "max_length": 10,
+          "avg_length": 10.0,
+          "min_value": "2025-06-28",
+          "max_value": "2025-06-30",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "numero_tarjeta",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "tipo_garantia",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "valor_garantia",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "cod_segmento",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "indicador_bloqueo",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "N",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "N",
+          "max_value": "N",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "motivo_bloqueo",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "fecha_bloqueo",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "usuario_creacion",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "USR001",
+              2
+            ],
+            [
+              "USR003",
+              1
+            ]
+          ],
+          "min_length": 6,
+          "max_length": 6,
+          "avg_length": 6.0,
+          "min_value": "USR001",
+          "max_value": "USR003",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "fecha_creacion",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "2023-01-15",
+              1
+            ],
+            [
+              "2023-02-20",
+              1
+            ],
+            [
+              "2023-03-10",
+              1
+            ]
+          ],
+          "min_length": 10,
+          "max_length": 10,
+          "avg_length": 10.0,
+          "min_value": "2023-01-15",
+          "max_value": "2023-03-10",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "usuario_modificacion",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "USR002",
+              2
+            ],
+            [
+              "USR003",
+              1
+            ]
+          ],
+          "min_length": 6,
+          "max_length": 6,
+          "avg_length": 6.0,
+          "min_value": "USR002",
+          "max_value": "USR003",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "fecha_modificacion",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "2025-06-30",
+              1
+            ],
+            [
+              "2025-06-29",
+              1
+            ],
+            [
+              "2025-06-28",
+              1
+            ]
+          ],
+          "min_length": 10,
+          "max_length": 10,
+          "avg_length": 10.0,
+          "min_value": "2025-06-28",
+          "max_value": "2025-06-30",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "observaciones",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "Cuenta activa",
+              1
+            ],
+            [
+              "Cuenta corriente",
+              1
+            ],
+            [
+              "Cuenta empresarial",
+              1
+            ]
+          ],
+          "min_length": 13,
+          "max_length": 18,
+          "avg_length": 15.67,
+          "min_value": "Cuenta activa",
+          "max_value": "Cuenta empresarial",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "campo_adicional",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        }
+      ],
+      "validation_warnings": [],
+      "validation_errors": [],
+      "processing_time": 0.017459869384765625
+    }
+  }
+}
