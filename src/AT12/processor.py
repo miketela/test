@@ -79,16 +79,31 @@ class AT12Processor:
     
     def _load_schemas(self):
         """Load schema files."""
-        schema_dir = Path(self.config['base_dir']) / 'schemas' / self.atom_name
+        # Prefer explicit schemas_dir from config, resolve relative to base_dir if needed
+        schemas_root_cfg = self.config.get('schemas_dir')
+        base_dir_cfg = Path(self.config.get('base_dir', os.getcwd()))
+        if schemas_root_cfg:
+            root_path = Path(schemas_root_cfg)
+            if not root_path.is_absolute():
+                root_path = base_dir_cfg / root_path
+        else:
+            root_path = base_dir_cfg / 'schemas'
+        schema_dir = root_path / self.atom_name
         
-        # Load expected files
+        # Load expected files (fallback to project schemas if not present in custom schemas_dir)
         expected_files_path = schema_dir / 'expected_files.json'
         try:
             with open(expected_files_path, 'r', encoding='utf-8') as f:
                 self.expected_files = json.load(f)
         except FileNotFoundError:
-            self.logger.error(f"Expected files schema not found: {expected_files_path}")
-            raise
+            fallback_expected = Path(self.config.get('base_dir', os.getcwd())) / 'schemas' / self.atom_name / 'expected_files.json'
+            if fallback_expected.exists():
+                self.logger.warning(f"Expected files not found in custom schemas; using fallback: {fallback_expected}")
+                with open(fallback_expected, 'r', encoding='utf-8') as f:
+                    self.expected_files = json.load(f)
+            else:
+                self.logger.error(f"Expected files schema not found: {expected_files_path}")
+                raise
         except json.JSONDecodeError as e:
             self.logger.error(f"Invalid JSON in expected files schema: {e}")
             raise
@@ -99,8 +114,15 @@ class AT12Processor:
             with open(schema_headers_path, 'r', encoding='utf-8') as f:
                 self.schema_headers = json.load(f)
         except FileNotFoundError:
-            self.logger.warning(f"Schema headers not found: {schema_headers_path}")
-            self.schema_headers = {}
+            # Fallback to project schemas
+            fallback_headers = Path(self.config.get('base_dir', os.getcwd())) / 'schemas' / self.atom_name / 'schema_headers.json'
+            if fallback_headers.exists():
+                self.logger.warning(f"Schema headers not found in custom schemas; using fallback: {fallback_headers}")
+                with open(fallback_headers, 'r', encoding='utf-8') as f:
+                    self.schema_headers = json.load(f)
+            else:
+                self.logger.warning(f"Schema headers not found: {schema_headers_path}")
+                self.schema_headers = {}
         except json.JSONDecodeError as e:
             self.logger.error(f"Invalid JSON in schema headers: {e}")
             raise
@@ -338,8 +360,14 @@ class AT12Processor:
                     total_records += record_count
                     
                     # Validate headers if schema available
-                    if parsed.subtype in self.schema_headers:
+                    expected_headers: Optional[List[str]] = None
+                    # Support tests' schema format with global 'required_headers'
+                    if isinstance(self.schema_headers, dict) and 'required_headers' in self.schema_headers:
+                        expected_headers = self.schema_headers['required_headers']
+                    elif parsed.subtype in self.schema_headers:
                         expected_headers = list(self.schema_headers[parsed.subtype].keys())
+                    
+                    if expected_headers is not None:
                         actual_headers = list(df_sample.columns)
                         
                         # Use HeaderMapper for specific subtypes, otherwise use standard normalization
@@ -582,9 +610,10 @@ class AT12Processor:
             # Initialize transformation engine
             transformation_engine = AT12TransformationEngine(config=self.config)
 
-            # Find input files from data directory
+            # Find input files from data directory (case-insensitive extension)
             data_dir = Path(self.config['data_raw_dir'])
             input_files = list(data_dir.glob(f"*__run-{run_id}.csv"))
+            input_files += list(data_dir.glob(f"*__run-{run_id}.CSV"))
 
             if not input_files:
                 return ProcessingResult(
@@ -615,8 +644,24 @@ class AT12Processor:
                 logger=self.logger
             )
 
-            # Execute transformation
-            result = transformation_engine.transform(context)
+            # Load input CSVs into DataFrames and map by subtype
+            import pandas as pd
+            import re as _re
+            source_data = {}
+            for file_path in input_files:
+                try:
+                    df = pd.read_csv(file_path)
+                except Exception:
+                    # Fallback to UTF-8 with errors ignored
+                    df = pd.read_csv(file_path, encoding_errors='ignore')
+                # Derive subtype from filename stem, e.g. BASE_AT12_YYYYMMDD__run-XXXX -> BASE_AT12
+                stem = file_path.stem
+                m = _re.match(r"^(.+)_\d{8}__run-\d+$", stem)
+                subtype = m.group(1) if m else stem
+                source_data[subtype] = df
+
+            # Execute AT12 transformation using engine-specific API
+            result = transformation_engine.transform(context, source_data)
 
             # Convert TransformationResult to ProcessingResult
             if result.success:

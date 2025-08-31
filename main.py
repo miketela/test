@@ -13,6 +13,10 @@ from src.core.config import Config
 from src.core.log import get_logger, setup_logging
 from src.core.time_utils import resolve_period
 from src.core.reports import create_exploration_report
+try:
+    from scripts.tui import main as tui_main
+except Exception:
+    tui_main = None
 from src.AT12.processor import AT12Processor
 
 
@@ -43,6 +47,9 @@ def main():
     report_parser.add_argument("--title", help="Custom report title")
     report_parser.add_argument("--raw-data-dir", help="Path to raw data directory for additional analysis")
     
+    # TUI command
+    subparsers.add_parser("tui", help="Interactive terminal UI for explore/transform/report")
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -59,6 +66,12 @@ def main():
     logger = get_logger(__name__)
     
     try:
+        if args.command == "tui":
+            if tui_main is None:
+                print("TUI is unavailable (import failed)")
+                return 1
+            tui_main()
+            return 0
         if args.command == "report":
             # Handle report generation
             metrics_file = Path(args.metrics_file)

@@ -30,5 +30,8 @@ black>=23.0.0
 flake8>=6.0.0
 mypy>=1.0.0
 
+# Optional TUI (interactive CLI)
+InquirerPy>=0.3.4
+
 # Performance (optional)
 numba>=0.57.0

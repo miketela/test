@@ -30,6 +30,7 @@ class TestExploreWorkflow:
         
         # Create configuration
         config_data = {
+            "source_dir": str(data_raw_dir),
             "data_raw_dir": str(data_raw_dir),
             "data_processed_dir": str(data_processed_dir),
             "metrics_dir": str(metrics_dir),

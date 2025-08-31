@@ -1,9 +1,9 @@
 # Memoria a Corto Plazo: Estado Actual del Proyecto
 
-## Estado del Proyecto: ✅ HEADER MAPPING Y AT03 INTEGRADOS
+## Estado del Proyecto: ✅ SISTEMA DE INCIDENCIAS AT12 CORREGIDO
 
 **Run ID Actual:** `202401__run-202401`  
-**Última Actualización:** Sistema de header mapping implementado y esquema AT03 integrado
+**Última Actualización:** Sistema de incidencias AT12 completamente corregido y estandarizado
 
 ## Decisiones Técnicas Clave (STM)
 
@@ -40,10 +40,17 @@
 **Reportes PDF:** `/reports/exploration_metrics_AT12_202401__run-202401_report_with_stats.pdf`  
 **Datos Procesados:** `/data/raw/BASE_AT12_20240131__run-202401.CSV`
 
+**✅ Sistema de Incidencias AT12 Corregido:**
+- **Conflicto de métodos resuelto**: Eliminado método `_add_incidence` duplicado que causaba `incidence_type` incorrecto
+- **Firmas estandarizadas**: Todos los llamados a `_add_incidence` actualizados con parámetros correctos
+- **Validaciones funcionando**: Test `test_phase4_valor_minimo_avaluo_incidence` pasando correctamente
+- **Campos correctos**: `VALIDATION_FAILURE`, `HIGH` severity, `rule_name` y `metadata` apropiados
+
 ## Tests - Estado Final
 
 **Suite Completa:** 70 passed, 2 skipped, 0 failed  
 **Integración:** 10 passed - Todos los flujos de trabajo funcionando  
+**AT12 Phase4:** ✅ Test de validación VALOR_MINIMO_AVALUO pasando  
 **Warnings:** 225 (esperados - parsing de fechas)
 
 ## Próxima Acción

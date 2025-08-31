@@ -83,6 +83,8 @@ The system includes an advanced header mapping and normalization engine:
 - **Persistent audit:** `run.json`, `manifest.json` (includes **missing** with `reason`), `events.jsonl`.
 - **Retention:** 24 months (reports & logs).
 
+## Data Dependencies
+- **AT03 -> AT12**: The `AT03` file is a critical dependency for `AT12`, providing the loan `saldo` (balance) required for `valor_minimo_avaluo` validation and the `fec_ini_prestamo` (loan start date) for correcting `Fecha_Avalúo_Errada` (Incorrect Appraisal Date).
+
 ## Out of Immediate Scope
-- AT03 (left in “draft”: expected/schema placeholders).
 - UI (architecture ready; not implemented now).

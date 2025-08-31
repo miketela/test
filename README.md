@@ -317,6 +317,15 @@ Currently supports:
 
 This is an internal regulatory compliance tool. All changes must be reviewed and approved according to SBP guidelines.
 
+See `AGENTS.md` for the contributor guide and agent roles.
+
 ## License
 
 Internal use only - SBP Regulatory Compliance.
+
+## English Context Docs
+
+- Architecture: `context_files/en/architecture.md`
+- Functional Context: `context_files/en/functional_context.md`
+- Technical Context: `context_files/en/technical_context.md`
+- Transform Context (AT12): `context_files/en/transform_context.md`

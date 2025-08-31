@@ -145,6 +145,7 @@ El proyecto tiene una suite de pruebas robusta utilizando `pytest`.
 *   **Integración:** Flujo explore completamente funcional
 *   **Formatos:** CSV y XLSX validados y funcionando
 *   **Reportes:** PDF con estadísticas detalladas generado exitosamente
+*   **Sistema de Incidencias:** Completamente corregido y estandarizado (Enero 2025)
 
 ### 5.5. Esquemas AT12 - Actualización Reciente (2024)
 *   **Expansión de Tipos:** 7 nuevos subtipos de archivos AT12 configurados
@@ -158,7 +159,14 @@ El proyecto tiene una suite de pruebas robusta utilizando `pytest`.
 *   **AT03:** Datos de crédito requeridos para procesos de verificación AT12 (71 campos incluyendo garantías, provisiones y cronogramas de pago)
 *   **Configuración:** Todos los esquemas incluidos en schema_headers.json y expected_files.json
 
-### 5.6. Próximos Pasos
+### 5.6. Sistema de Incidencias AT12 - Correcciones Críticas (Enero 2025)
+*   **Problema Resuelto:** Conflicto de métodos `_add_incidence` duplicados causando tipos de incidencia incorrectos
+*   **Estandarización:** Todas las validaciones AT12 ahora usan firma consistente: `incidence_type`, `severity`, `rule_id`, `description`, `data`
+*   **Validaciones Funcionando:** Test `test_phase4_valor_minimo_avaluo_incidence` pasando correctamente
+*   **Campos Correctos:** `VALIDATION_FAILURE`, `HIGH` severity, `rule_name` y `metadata` apropiados
+*   **Integración IncidenceReporter:** Completamente integrado con sistema estándar de reporte
+
+### 5.7. Próximos Pasos
 *   **Transform Flow:** Pendiente de especificaciones funcionales
 *   **Escalabilidad:** Arquitectura preparada para nuevos átomos (AT03, etc.)
 *   **Mantenimiento:** Código documentado y completamente testeado

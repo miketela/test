@@ -10,7 +10,7 @@ New Structure:
 
 from pathlib import Path
 from typing import Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .config import Config
 from .naming import FilenameParser
@@ -23,6 +23,12 @@ class AT12Paths:
     base_transforms_dir: Path
     incidencias_dir: Path
     procesados_dir: Path
+    consolidated_dir: Optional[Path] = field(default=None)
+
+    def __post_init__(self):
+        # Keep backward compatibility: do not force a consolidated dir by default.
+        # If provided, it will be created by ensure_directories.
+        pass
     
     @classmethod
     def from_config(cls, config: Config) -> 'AT12Paths':
@@ -39,13 +45,16 @@ class AT12Paths:
         return cls(
             base_transforms_dir=base_transforms,
             incidencias_dir=base_transforms / "incidencias",
-            procesados_dir=base_transforms / "procesados"
+            procesados_dir=base_transforms / "procesados",
+            consolidated_dir=base_transforms / "consolidated"
         )
     
     def ensure_directories(self) -> None:
         """Create all required directories if they don't exist."""
         self.incidencias_dir.mkdir(parents=True, exist_ok=True)
         self.procesados_dir.mkdir(parents=True, exist_ok=True)
+        if self.consolidated_dir is not None:
+            self.consolidated_dir.mkdir(parents=True, exist_ok=True)
     
     def get_incidencia_path(self, filename: str) -> Path:
         """Get full path for an incidence file.
@@ -92,7 +101,9 @@ class AT12Paths:
         Returns:
             Full path in procesados directory
         """
-        return self.procesados_dir / consolidated_filename
+        # Save consolidated TXT outputs under dedicated directory
+        target_dir = self.consolidated_dir if self.consolidated_dir is not None else self.procesados_dir
+        return target_dir / consolidated_filename
     
     def list_incidencias(self, pattern: str = "*.csv") -> list[Path]:
         """List all incidence files matching pattern.

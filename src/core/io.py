@@ -50,7 +50,8 @@ def detect_file_encoding(file_path: Path, sample_size: int = 8192) -> str:
             with open(file_path, 'r', encoding=encoding) as f:
                 f.read(sample_size)
             return encoding
-        except (UnicodeDecodeError, UnicodeError):
+        except (UnicodeDecodeError, UnicodeError, FileNotFoundError, OSError):
+            # If file doesn't exist or can't be read with this encoding, try next
             continue
     
     # Last resort: return utf-8 with error handling
@@ -111,7 +112,7 @@ class StrictCSVReader(BaseFileReader):
     
     def __init__(self, 
                  delimiter: str = ",",
-                 encoding: Optional[str] = None,
+                 encoding: Optional[str] = 'utf-8',
                  quotechar: str = '"',
                  chunk_size: int = 1000000,
                  auto_detect_encoding: bool = True):

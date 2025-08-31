@@ -1,0 +1,383 @@
+#!/usr/bin/env python3
+"""
+Simple terminal interface to run explore/transform/report and pick files.
+
+- Lists available files under `source/`.
+- Lets you choose which files to include for explore/transform.
+- Creates a temporary source directory with only the selected files
+  and runs the pipeline with SOURCE_DIR pointed there.
+"""
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import List, Tuple, Optional, Set
+from collections import Counter
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SOURCE_DIR = PROJECT_ROOT / "source"
+RAW_DIR = PROJECT_ROOT / "data" / "raw"
+TMP_SOURCE_DIR = PROJECT_ROOT / ".tmp_source_run"
+TMP_RAW_DIR = PROJECT_ROOT / ".tmp_raw_run"
+METRICS_DIR = PROJECT_ROOT / "metrics"
+
+
+def prompt(msg: str, default: Optional[str] = None) -> str:
+    sfx = f" [{default}]" if default else ""
+    val = input(f"{msg}{sfx}: ").strip()
+    return val or (default or "")
+
+# Optional richer prompts via InquirerPy
+try:
+    from InquirerPy import inquirer as _inq
+    HAS_INQUIRER = True
+except Exception:
+    HAS_INQUIRER = False
+
+
+def prompt_checkbox(message: str, choices: List[str], default: Optional[List[str]] = None) -> List[str]:
+    if HAS_INQUIRER:
+        return _inq.checkbox(message=message, choices=choices, default=default or [],
+                             transformer=lambda r: f"{len(r)} selected",
+                             validate=lambda r: True, instruction="Space to toggle, Enter to accept").execute()
+    # Fallback: show indexed list and parse indices
+    print(message)
+    for i, c in enumerate(choices, 1):
+        print(f"  {i}. {c}")
+    raw = input("Select by numbers (e.g., 1,3,5-7) or 'a': ").strip()
+    idxs = parse_indices(raw, len(choices))
+    return [choices[i - 1] for i in idxs]
+
+
+def prompt_text(message: str, default: Optional[str] = None) -> str:
+    if HAS_INQUIRER:
+        return _inq.text(message=message + (f" [{default}]" if default else ""), default=default or "").execute().strip()
+    return prompt(message, default)
+
+
+def prompt_select(message: str, choices: List[str], default: Optional[str] = None) -> str:
+    if HAS_INQUIRER:
+        return _inq.select(message=message, choices=choices, default=default or (choices[0] if choices else None)).execute()
+    # Fallback to numeric selection
+    print(message)
+    for i, c in enumerate(choices, 1):
+        print(f"  {i}. {c}")
+    idxs = parse_indices(input("Select one: "), len(choices))
+    return choices[idxs[0] - 1] if idxs else (default or choices[0])
+
+
+def prompt_int(message: str, default: Optional[int] = None) -> int:
+    default_str = str(default) if default is not None else None
+    while True:
+        val = prompt_text(message, default_str)
+        try:
+            return int(val)
+        except Exception:
+            print("Please enter a valid integer.")
+
+
+def list_source_files() -> List[Path]:
+    if not SOURCE_DIR.exists():
+        return []
+    files = []
+    for p in sorted(SOURCE_DIR.iterdir()):
+        if p.is_file() and p.suffix.lower() in {".csv", ".xlsx"}:
+            files.append(p)
+    return files
+
+
+def print_menu(title: str, options: List[str]) -> int:
+    print(f"\n=== {title} ===")
+    for i, opt in enumerate(options, 1):
+        print(f"  {i}. {opt}")
+    while True:
+        choice = input("Select an option (number): ").strip()
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(options):
+                return idx
+        print("Invalid selection. Try again.")
+
+
+def parse_indices(s: str, n: int) -> List[int]:
+    # Accept formats: "a" (all), "1,3,5-7"
+    s = s.strip().lower()
+    if s in {"a", "all", "*"}:
+        return list(range(1, n + 1))
+    result = set()
+    for part in s.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            a, b = part.split("-", 1)
+            if a.isdigit() and b.isdigit():
+                start, end = int(a), int(b)
+                for i in range(start, end + 1):
+                    if 1 <= i <= n:
+                        result.add(i)
+        elif part.isdigit():
+            i = int(part)
+            if 1 <= i <= n:
+                result.add(i)
+    return sorted(result)
+
+
+def pick_files(files: List[Path]) -> List[Path]:
+    if not files:
+        print("No files found.")
+        return []
+    names = [p.name for p in files]
+    selected_names = prompt_checkbox("Select files (space to toggle):", names, default=names)
+    chosen = [p for p in files if p.name in selected_names]
+    print("Selected:")
+    for p in chosen:
+        print(f"  - {p.name}")
+    return chosen
+
+
+def list_raw_run_files(year: int, month: int) -> List[Path]:
+    files: List[Path] = []
+    if not RAW_DIR.exists():
+        return files
+    patt_csv = f"*__run-{year}{month:02d}.csv"
+    patt_CSV = f"*__run-{year}{month:02d}.CSV"
+    files.extend(sorted(RAW_DIR.glob(patt_csv)))
+    files.extend(sorted(RAW_DIR.glob(patt_CSV)))
+    return files
+
+
+def infer_subtype(filename: str) -> str:
+    m = re.match(r"^(.+?)_\d{8}(?:__run-\d+)?\.[A-Za-z0-9]+$", filename)
+    if m:
+        return m.group(1)
+    m = re.search(r"(\d{8})", filename)
+    if m:
+        return filename[: m.start()].rstrip("_")
+    return filename
+
+
+def prompt_subtype_filter(files: List[Path]) -> Set[str]:
+    # Build subtype stats: file counts and approximate row counts
+    def _row_count_csv(path: Path) -> int:
+        try:
+            with path.open('r', encoding='utf-8', errors='ignore') as f:
+                c = sum(1 for _ in f)
+            return max(c - 1, 0)
+        except Exception:
+            return 0
+    def _row_count_xlsx(path: Path, sheet_sel: Optional[str]) -> int:
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(filename=str(path), read_only=True, data_only=True)
+            # Resolve sheet by name or index
+            ws = None
+            if sheet_sel and sheet_sel.isdigit():
+                idx = int(sheet_sel)
+                if 0 <= idx < len(wb.sheetnames):
+                    ws = wb[wb.sheetnames[idx]]
+            elif sheet_sel and sheet_sel in wb.sheetnames:
+                ws = wb[sheet_sel]
+            if ws is None:
+                # Fallback to first sheet
+                ws = wb[wb.sheetnames[0]]
+            # Count non-empty rows (any cell has a value)
+            count = 0
+            for row in ws.iter_rows(values_only=True):
+                if any(cell is not None and str(cell).strip() != "" for cell in row):
+                    count += 1
+            # Subtract header if present (assume first row is header)
+            return max(count - 1, 0)
+        except Exception:
+            return 0
+
+    file_counts = Counter()
+    row_counts = Counter()
+    # Ask once for XLSX sheet selection if there are XLSX files
+    sheet_sel: Optional[str] = None
+    if any(p.suffix.lower() == '.xlsx' for p in files):
+        sheet_sel = prompt_text("XLSX sheet (name or 0-based index, blank=first)", "") or None
+
+    for p in files:
+        st = infer_subtype(p.name)
+        file_counts[st] += 1
+        ext = p.suffix.lower()
+        if ext == '.csv':
+            row_counts[st] += _row_count_csv(p)
+        elif ext == '.xlsx':
+            row_counts[st] += _row_count_xlsx(p, sheet_sel)
+
+    # Sort subtypes by file count desc, then by name
+    subtypes_sorted = sorted(file_counts.keys(), key=lambda k: (-file_counts[k], k))
+    if not subtypes_sorted:
+        return set()
+    print("\nDetected subtypes (files, registros):")
+    for i, st in enumerate(subtypes_sorted, 1):
+        print(f"  {i}. {st} ({file_counts[st]} files, {row_counts[st]} registros)")
+    raw = input("Filter by subtype names (comma-separated), 'a' for all, or leave empty: ").strip()
+    if not raw or raw.lower() in {"a", "all", "*"}:
+        return set()
+    wanted = {s.strip() for s in raw.split(",") if s.strip()}
+    wanted_lower = {w.lower() for w in wanted}
+    chosen = {st for st in subtypes_sorted if st.lower() in wanted_lower}
+    return chosen
+
+
+def extract_date_from_name(name: str) -> Optional[Tuple[int, int]]:
+    # Look for 8-digit date and derive year/month
+    m = re.search(r"(\d{8})", name)
+    if not m:
+        return None
+    ymd = m.group(1)
+    try:
+        return int(ymd[:4]), int(ymd[4:6])
+    except Exception:
+        return None
+
+
+def prepare_tmp_source(selected: List[Path]) -> Path:
+    if TMP_SOURCE_DIR.exists():
+        shutil.rmtree(TMP_SOURCE_DIR)
+    TMP_SOURCE_DIR.mkdir(parents=True, exist_ok=True)
+    for p in selected:
+        shutil.copy2(p, TMP_SOURCE_DIR / p.name)
+    return TMP_SOURCE_DIR
+
+
+def prepare_tmp_raw(selected: List[Path]) -> Path:
+    if TMP_RAW_DIR.exists():
+        shutil.rmtree(TMP_RAW_DIR)
+    TMP_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    for p in selected:
+        shutil.copy2(p, TMP_RAW_DIR / p.name)
+    return TMP_RAW_DIR
+
+
+def run_cmd(args: List[str], env_overrides: Optional[dict] = None) -> int:
+    env = os.environ.copy()
+    if env_overrides:
+        env.update(env_overrides)
+    print("\n> ", " ".join(args))
+    proc = subprocess.run(args, env=env)
+    return proc.returncode
+
+
+def action_explore(selected: List[Path]):
+    # Infer period from first file, or ask
+    default_period = extract_date_from_name(selected[0].name) if selected else None
+    default_year = str(default_period[0]) if default_period else "2024"
+    default_month = str(default_period[1]) if default_period else "1"
+    year = prompt_int("Year", int(default_year))
+    month = prompt_int("Month", int(default_month))
+
+    tmp_dir = prepare_tmp_source(selected)
+    print(f"Using temporary SOURCE_DIR: {tmp_dir}")
+    rc = run_cmd([sys.executable, str(PROJECT_ROOT / "main.py"),
+                  "explore", "--atoms", "AT12", "--year", str(year), "--month", str(month)],
+                 env_overrides={"SOURCE_DIR": str(tmp_dir)})
+    if rc == 0:
+        print("Explore completed.")
+    elif rc == 2:
+        print("Explore completed with warnings.")
+    else:
+        print("Explore failed.")
+
+
+def action_transform():
+    # Allow selecting which raw files to include for the chosen run
+    year = prompt_int("Year", 2024)
+    month = prompt_int("Month", 1)
+
+    available = list_raw_run_files(year, month)
+    if not available:
+        print(f"No files found in data/raw for run {year}{month:02d}.")
+        return
+    # Optional subtype filter
+    wanted = prompt_subtype_filter(available)
+    list_for_pick = [p for p in available if not wanted or infer_subtype(p.name) in wanted]
+    if not list_for_pick:
+        print("No files after applying subtype filter.")
+        return
+    chosen = pick_files(list_for_pick)
+    if not chosen:
+        print("No selection.")
+        return
+
+    tmp_raw = prepare_tmp_raw(chosen)
+    print(f"Using temporary RAW_DIR: {tmp_raw}")
+    rc = run_cmd([sys.executable, str(PROJECT_ROOT / "main.py"),
+                  "transform", "--atoms", "AT12", "--year", str(year), "--month", str(month)],
+                 env_overrides={"RAW_DIR": str(tmp_raw)})
+    if rc == 0:
+        print("Transform completed.")
+    elif rc == 2:
+        print("Transform completed with warnings.")
+    else:
+        print("Transform failed.")
+
+
+def action_report():
+    # Pick a metrics json under metrics/
+    metric_files = sorted((METRICS_DIR).glob("*.json"))
+    if not metric_files:
+        print("No metrics JSON files found under metrics/.")
+        return
+    print("\nAvailable metrics files:")
+    for i, p in enumerate(metric_files, 1):
+        print(f"  {i}. {p.name}")
+    idxs = parse_indices(input("Select one (number): "), len(metric_files))
+    if not idxs:
+        print("No selection.")
+        return
+    chosen = metric_files[idxs[0] - 1]
+    out = prompt("Output PDF path", str(PROJECT_ROOT / "reports" / "out.pdf"))
+    rc = run_cmd([sys.executable, str(PROJECT_ROOT / "main.py"),
+                  "report", "--metrics-file", str(chosen), "--output", out])
+    if rc != 0:
+        print("Report generation failed.")
+
+
+def main():
+    print("AT12 Terminal Interface")
+    if not HAS_INQUIRER:
+        print("(Tip) For interactive menus, install InquirerPy: pip install InquirerPy")
+    menu_items = [
+        "Explore (pick files)",
+        "Transform (from last explore run)",
+        "Report (choose metrics JSON)",
+        "Exit",
+    ]
+    while True:
+        if HAS_INQUIRER:
+            selection = prompt_select("Main Menu", menu_items, default=menu_items[0])
+        else:
+            idx = print_menu("Main Menu", menu_items)
+            selection = menu_items[idx - 1]
+
+        if selection.startswith("Explore"):
+            files = list_source_files()
+            if not files:
+                print("No files in source/.")
+                continue
+            wanted = prompt_subtype_filter(files)
+            list_for_pick = [p for p in files if not wanted or infer_subtype(p.name) in wanted]
+            selected = pick_files(list_for_pick)
+            if selected:
+                action_explore(selected)
+        elif selection.startswith("Transform"):
+            action_transform()
+        elif selection.startswith("Report"):
+            action_report()
+        else:
+            break
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nAborted.")

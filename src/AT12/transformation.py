@@ -1,452 +1,804 @@
-"""AT12-specific transformation engine.
-
-This module implements the business rules and transformations specific to AT12
-regulatory atoms, using pandas for all data processing operations.
-
-Transformation Phases:
-1. Error Correction: Fix common data quality issues
-2. Input Processing: Handle specific subtypes (TDC_AT12, SOBREGIRO_AT12, VALORES_AT12)
-3. Filtering: Apply FUERA_CIERRE_AT12 filtering
-4. Validation: Apply VALOR_MINIMO_AVALUO_AT12 validation
-"""
-
-from typing import Dict, List, Optional, Tuple, Any
-from pathlib import Path
+from typing import Dict, List, Optional, Any
 import pandas as pd
-import numpy as np
-from datetime import datetime
+from pathlib import Path
 import logging
+from datetime import datetime
 
-from ..core.transformation import TransformationEngine, TransformationContext, TransformationResult
-from ..core.config import Config
-from ..core.naming import FilenameParser
-from ..core.header_mapping import HeaderMapper
+from src.core.transformation import TransformationEngine, TransformationContext, TransformationResult
+from src.core.incidence_reporter import IncidenceReporter, IncidenceType, IncidenceSeverity
+from src.core.naming import FilenameParser
 
 
 class AT12TransformationEngine(TransformationEngine):
-    """AT12-specific transformation engine with pandas-based processing.
+    """AT12 Transformation Engine for processing AT12 data files."""
     
-    Implements all AT12 business rules and transformations while maintaining
-    separation of concerns and testability.
-    """
-    
-    # AT12 specific constants
-    EXPECTED_SUBTYPES = [
-        'BASE_AT12', 'TDC_AT12', 'SOBREGIRO_AT12', 'VALORES_AT12', 
-        'FUERA_CIERRE_AT12', 'VALOR_MINIMO_AVALUO_AT12',
-        'AT02_CUENTAS', 'AT03_CREDITOS', 'POLIZA_HIPOTECAS_AT12', 'GARANTIA_AUTOS_AT12'
-    ]
-    REQUIRED_SUBTYPES = ['BASE_AT12']  # BASE is always required
-    
-    # Business rule thresholds
-    MIN_AVALUO_THRESHOLD = 1000000  # Minimum avaluo value
-    
-    def __init__(self, config: Config):
-        """Initialize AT12 transformation engine.
+    def __init__(self, config):
+        super().__init__(config)
+        self.atom_type = "AT12"
+        self.incidences_data: Dict[str, List[Dict]] = {}
+        self.incidence_reporter: Optional[IncidenceReporter] = None
+        # AT12 expected subtypes
+        expected_subtypes = ['TDC', 'SOBREGIRO', 'VALORES']
+        self._filename_parser = FilenameParser(expected_subtypes)
+
+    def _export_error_subset(self, df: pd.DataFrame, mask: pd.Series, subtype: str, rule_name: str,
+                              context: TransformationContext, result: Optional[TransformationResult]) -> None:
+        """Export a CSV containing only rows that match the error mask, preserving all original columns."""
+        try:
+            out_df = df.loc[mask].copy()
+            if out_df.empty:
+                return
+            # Build filename focusing on rule name and subtype
+            filename = f"INC_{rule_name}_{subtype}_{context.period}.csv"
+            out_path = context.paths.incidencias_dir / filename
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_df.to_csv(
+                out_path,
+                index=False,
+                encoding='utf-8',
+                sep=getattr(context.config, 'output_delimiter', '|'),
+                quoting=1,
+                date_format='%Y%m%d'
+            )
+            if result is not None and hasattr(result, 'incidence_files'):
+                result.incidence_files.append(out_path)
+            self.logger.info(f"Exported error subset for {rule_name} ({subtype}): {out_path}")
+        except Exception as e:
+            self.logger.warning(f"Failed to export error subset for {rule_name}: {e}")
+
+    def _add_incidence(self, incidence_type: IncidenceType, severity: IncidenceSeverity, rule_id: str, description: str, data: Dict[str, Any]):
+        """Helper to add a standardized incidence."""
+        if not self.incidence_reporter:
+            self.logger.warning("Incidence reporter not initialized. Skipping incidence.")
+            return
+
+        # Use the standard add_incidence method without problematic kwargs
+        incidence_id = self.incidence_reporter.add_incidence(
+            subtype="BASE",
+            incidence_type=incidence_type,
+            description=description,
+            severity=severity
+        )
+        
+        # Manually set the additional fields on the created incidence
+        if "BASE" in self.incidence_reporter.incidences and self.incidence_reporter.incidences["BASE"]:
+            last_incidence = self.incidence_reporter.incidences["BASE"][-1]
+            last_incidence.rule_name = rule_id
+            last_incidence.metadata = data
+
+    def _apply_transformations(self, df: pd.DataFrame, context: TransformationContext, 
+                             result: TransformationResult, source_data: Dict[str, pd.DataFrame],
+                             subtype: str = "") -> pd.DataFrame:
+        """Apply AT12-specific transformations using a five-stage pipeline.
         
         Args:
-            config: Configuration instance
+            df: Input DataFrame
+            context: Transformation context
+            result: Result object to update
+            source_data: Dictionary of source DataFrames
+            
+        Returns:
+            Transformed DataFrame
         """
-        super().__init__(config)
-        self.header_mapper = HeaderMapper()
-        self.incidences_data = {}  # Store incidences by subtype
+        self.logger.info("Starting AT12 transformation pipeline")
         
-        # Override the filename parser with AT12-specific expected subtypes
-        self._filename_parser = FilenameParser(self.EXPECTED_SUBTYPES)
-    
-    def _apply_transformations(self, context: TransformationContext, 
-                             source_data: Dict[str, pd.DataFrame], 
-                             result: TransformationResult) -> Dict[str, pd.DataFrame]:
-        """Apply AT12-specific transformations in a multi-phase process."""
-        self.logger.info("Starting AT12 transformations")
-        self.incidences_data = {}
-
-        # Phase 1: Error Correction
-        corrected_data = self._phase1_error_correction(context, source_data, result)
-
-        # Phase 2: Input Processing (specific subtypes)
-        processed_data = self._phase2_input_processing(context, corrected_data, result)
-
-        # --- Consolidation Step ---
-        subtypes_to_consolidate = ['BASE_AT12', 'TDC_AT12', 'SOBREGIRO_AT12', 'VALORES_AT12']
-        dfs_to_consolidate = [processed_data[st] for st in subtypes_to_consolidate if st in processed_data and not processed_data[st].empty]
+        # Initialize IncidenceReporter
+        self.incidence_reporter = IncidenceReporter(
+            config=self.config,
+            run_id=context.run_id,
+            period=context.period
+        )
         
-        if not dfs_to_consolidate:
-            result.warnings.append("No data available for consolidation.")
-            self.logger.warning("No data to consolidate. Transformation will stop before consolidation.")
-            return processed_data
-
-        consolidated_df = pd.concat(dfs_to_consolidate, ignore_index=True, sort=False)
-        self.logger.info(f"Consolidated {len(consolidated_df)} records from {len(dfs_to_consolidate)} subtypes.")
-
-        # Phase 3: Filtering (FUERA_CIERRE)
-        consolidated_df = self._phase3_filter_fuera_cierre(consolidated_df, context, result, source_data)
-
-        # Phase 4: Validation (VALOR_MINIMO_AVALUO)
-        consolidated_df = self._phase4_valor_minimo_avaluo(consolidated_df, context, result, source_data)
-
-        # Store the final consolidated data
-        final_data = processed_data.copy()
-        final_data['CONSOLIDATED_AT12'] = consolidated_df
-
-        self.logger.info("AT12 transformations completed")
-        return final_data
+        # Stage 1: Initial Data Cleansing and Formatting
+        df = self._stage1_initial_cleansing(df, context, result, source_data, subtype)
+        
+        # Stage 2: Data Enrichment and Generation from Auxiliary Sources
+        df = self._stage2_enrichment(df, context, result, source_data)
+        
+        # Stage 3: Business Logic Application and Reporting
+        df = self._stage3_business_logic(df, context, result, source_data)
+        
+        # Stage 4: Data Validation and Quality Assurance (only when applicable)
+        try:
+            if 'Numero_Prestamo' in df.columns or 'at_num_de_prestamos' in df.columns:
+                df = self._stage4_validation(df, context, result, source_data)
+            else:
+                self.logger.debug("Skipping Stage 4: required identifier column not present")
+        except Exception as e:
+            self.logger.warning(f"Stage 4 skipped due to error: {e}")
+        
+        self.logger.info("AT12 transformation pipeline completed")
+        return df
     
-    def _phase1_error_correction(self, context: TransformationContext, 
-                               source_data: Dict[str, pd.DataFrame], 
-                               result: TransformationResult) -> Dict[str, pd.DataFrame]:
-        """Phase 1: Apply error correction to all data.
+    def _stage1_initial_cleansing(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame], subtype: str = "") -> pd.DataFrame:
+        """Stage 1: Initial Data Cleansing and Formatting"""
+        return self._phase1_error_correction(df, context, result, source_data)
+
+    def _stage2_enrichment(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Stage 2: Data Enrichment and Generation from Auxiliary Sources"""
+        return self._phase2_input_processing(df, context, result, source_data)
+
+    def _stage3_business_logic(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Stage 3: Business Logic Application and Reporting"""
+        return self._phase3_filter_fuera_cierre(df, context, result, source_data)
+
+    def _stage4_validation(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Stage 4: Data Validation and Quality Assurance"""
+        return self._phase4_valor_minimo_avaluo(df, context, result, source_data)
+    
+    def _stage5_output_generation(self, context: TransformationContext, transformed_data: Dict[str, pd.DataFrame], result: TransformationResult) -> None:
+        """Stage 5: Output Generation and File Creation"""
+        self._generate_outputs(context, transformed_data, result)
+    
+    def transform(self, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> TransformationResult:
+        """Transform AT12 data with five-stage pipeline.
         
         Args:
             context: Transformation context
-            source_data: Source data by subtype
-            result: Result object to update
+            source_data: Dictionary of source DataFrames
             
         Returns:
-            Corrected data by subtype
+            TransformationResult with processed data and metadata
         """
-        self.logger.info("Phase 1: Error correction")
-        corrected_data = {}
+        # Initialize result with required fields from core dataclass
+        result = TransformationResult(
+            success=False,
+            processed_files=[],
+            incidence_files=[],
+            consolidated_file=None,
+            metrics={},
+            errors=[],
+            warnings=[]
+        )
+        transformed_data = {}
         
-        for subtype, df in source_data.items():
-            self.logger.info(f"Correcting errors in {subtype} ({len(df)} records)")
-            
-            # Create a copy to avoid modifying original data
-            corrected_df = df.copy()
-            
-            # Apply header mapping/normalization
-            corrected_df = self._normalize_headers(corrected_df, subtype)
-            
-            # Apply data type corrections
-            corrected_df = self._correct_data_types(corrected_df, subtype)
-            
-            # Apply business rule corrections
-            corrected_df = self._apply_business_corrections(corrected_df, subtype, context, source_data)
-            
-            # Track corrections as metrics
-            original_count = len(df)
-            corrected_count = len(corrected_df)
-            
-            if original_count != corrected_count:
-                result.warnings.append(
-                    f"{subtype}: Record count changed from {original_count} to {corrected_count} after corrections"
-                )
-            
-            corrected_data[subtype] = corrected_df
-            self.logger.info(f"Completed error correction for {subtype}")
-        
-        return corrected_data
-    
-    def _phase2_input_processing(self, context: TransformationContext, 
-                               source_data: Dict[str, pd.DataFrame], 
-                               result: TransformationResult) -> Dict[str, pd.DataFrame]:
-        """Phase 2: Process specific input subtypes by enriching them."""
-        self.logger.info("Executing Phase 2: Input Processing")
-        processed_data = source_data.copy()
-
-        if 'TDC_AT12' in processed_data:
-            processed_data['TDC_AT12'] = self._process_tdc_data(processed_data['TDC_AT12'], context, result, source_data)
-        
-        if 'SOBREGIRO_AT12' in processed_data:
-            processed_data['SOBREGIRO_AT12'] = self._process_sobregiro_data(processed_data['SOBREGIRO_AT12'], context, result, source_data)
-
-        if 'VALORES_AT12' in processed_data:
-            processed_data['VALORES_AT12'] = self._process_valores_data(processed_data['VALORES_AT12'], context, result, source_data)
-        
-        return processed_data
-    
-    def _normalize_headers(self, df: pd.DataFrame, subtype: str) -> pd.DataFrame:
-        """Normalize column headers using HeaderMapper.
-        
-        Args:
-            df: DataFrame to normalize
-            subtype: Data subtype
-            
-        Returns:
-            DataFrame with normalized headers
-        """
         try:
-            # Get expected headers for this subtype
-            mapping = self.header_mapper.get_mapping_for_subtype(f"AT12_{subtype}")
+            # Process each data subtype
+            for subtype, df in source_data.items():
+                if df is None or df.empty:
+                    continue
+                # Process only relevant AT12 subtypes
+                if subtype not in ('BASE_AT12', 'TDC_AT12', 'SOBREGIRO_AT12', 'VALORES_AT12'):
+                    continue
+                self.logger.info(f"Processing {subtype} with {len(df)} records")
+                
+                # Apply transformation pipeline
+                transformed_df = self._apply_transformations(df, context, result, source_data, subtype)
+                transformed_data[subtype] = transformed_df
+                
+                self.logger.info(f"Completed processing {subtype}: {len(transformed_df)} records")
             
-            if isinstance(mapping, dict):
-                # Apply header mapping
-                df_normalized = df.rename(columns=mapping)
-            else:
-                # Use header normalizer for cleaning
-                normalized_headers = [self.header_mapper.normalizer.normalize_header(col) for col in df.columns]
-                df_normalized = df.copy()
-                df_normalized.columns = normalized_headers
+            # Stage 5: Generate outputs
+            self._stage5_output_generation(context, transformed_data, result)
             
-            return df_normalized
+            result.success = True
+            # Store summary for reporting
+            result.metrics.update({'subtypes_processed': list(transformed_data.keys())})
+            # Ensure message attribute exists for downstream consumers/tests
+            result.message = f"AT12 transformation completed successfully. Processed {len(transformed_data)} subtypes."
             
         except Exception as e:
-            self.logger.warning(f"Header normalization failed for {subtype}: {str(e)}")
+            error_msg = f"AT12 transformation failed: {str(e)}"
+            result.errors.append(error_msg)
+            result.success = False
+            result.message = error_msg
+            self.logger.error(error_msg, exc_info=True)
+        
+        return result
+    
+    def _phase1_error_correction(self, df: pd.DataFrame, context: TransformationContext, 
+                               result: TransformationResult, source_data: Dict[str, pd.DataFrame], subtype: str = "") -> pd.DataFrame:
+        """Phase 1: Apply error correction rules to the data according to Stage 1 specifications."""
+        self.logger.info("Executing Phase 1: Initial Data Cleansing and Formatting")
+        
+        # Apply all error correction rules in sequence
+        df = self._apply_eeor_tabular_cleaning(df, context)
+        df = self._apply_error_0301_correction(df, context, subtype=subtype, result=result)
+        df = self._apply_coma_finca_empresa_correction(df, context)
+        df = self._apply_fecha_cancelacion_correction(df, context)
+        
+        # This method requires source_data for AT03_CREDITOS lookup
+        if source_data:
+            df = self._apply_fecha_avaluo_correction(df, context, source_data)
+        
+        df = self._apply_inmuebles_sin_poliza_correction(df, context)
+        df = self._apply_inmuebles_sin_finca_correction(df, context)
+        df = self._apply_poliza_auto_comercial_correction(df, context)
+        df = self._apply_error_poliza_auto_correction(df, context)
+        df = self._apply_inmueble_sin_avaluadora_correction(df, context)
+        
+        self.logger.info("Completed Phase 1: Error correction")
+        return df
+    
+    def _phase2_input_processing(self, df: pd.DataFrame, context: TransformationContext, 
+                               result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Phase 2: Process input data based on subtype."""
+        self.logger.info("Executing Phase 2: Input Processing")
+        
+        # Determine subtype from context or DataFrame characteristics
+        subtype = self._determine_subtype(df, context)
+        
+        if subtype == 'TDC_AT12':
+            return self._process_tdc_data(df, context, result, source_data)
+        elif subtype == 'SOBREGIRO_AT12':
+            return self._process_sobregiro_data(df, context, result, source_data)
+        elif subtype == 'VALORES_AT12':
+            return self._process_valores_data(df, context, result, source_data)
+        else:
+            self.logger.warning(f"Unknown subtype: {subtype}. Applying generic processing.")
             return df
     
-    def _correct_data_types(self, df: pd.DataFrame, subtype: str) -> pd.DataFrame:
-        """Apply data type corrections.
+    def _determine_subtype(self, df: pd.DataFrame, context: TransformationContext) -> str:
+        """Determine the subtype of the data based on columns or context."""
+        # This is a placeholder implementation
+        # In practice, you would determine subtype based on column names, context, or other criteria
+        if 'TDC' in str(df.columns).upper():
+            return 'TDC_AT12'
+        elif 'SOBREGIRO' in str(df.columns).upper():
+            return 'SOBREGIRO_AT12'
+        elif 'VALORES' in str(df.columns).upper():
+            return 'VALORES_AT12'
+        else:
+            return 'UNKNOWN'
+    
+    def _process_tdc_data(self, df: pd.DataFrame, context: TransformationContext, 
+                        result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Process TDC (Tarjeta de Crédito) specific data according to Stage 2 specifications."""
+        self.logger.info("Processing TDC_AT12 data - Stage 2")
         
-        Args:
-            df: DataFrame to correct
-            subtype: Data subtype
-            
-        Returns:
-            DataFrame with corrected data types
+        # 2.1. TDC_AT12 Processing
+        # Step 1: Generate Número_Garantía
+        df = self._generate_numero_garantia_tdc(df, context)
+        
+        # Step 2: Date Mapping with AT02_CUENTAS
+        df = self._apply_date_mapping_tdc(df, context, source_data)
+
+        # Step 3: Business rule - Tarjeta repetida (detect duplicates excluding Numero_Prestamo)
+        try:
+            df = self._validate_tdc_tarjeta_repetida(df, context)
+        except Exception as e:
+            self.logger.warning(f"TDC 'Tarjeta_repetida' validation skipped due to error: {e}")
+        
+        return df
+
+    def _col_any(self, df: pd.DataFrame, candidates: list) -> Optional[str]:
+        for c in candidates:
+            if c in df.columns:
+                return c
+        return None
+
+    def _validate_tdc_tarjeta_repetida(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """Detect repeated credit cards excluding Numero_Prestamo and export inconsistencies.
+
+        Duplicate key (priority order based on availability):
+          1) ('Identificacion_cliente','Identificacion_Cuenta','Tipo_Facilidad')
+          2) ('Id_Documento','Tipo_Facilidad')
+
+        Records sharing the same key are considered 'Tarjeta_repetida'.
+        Export full-row subset to INC_TARJETA_REPETIDA_TDC_AT12_<PERIODO>.csv and record incidences.
         """
-        corrected_df = df.copy()
-        
-        # Common date column patterns
-        date_columns = [col for col in corrected_df.columns if 'fecha' in col.lower() or 'date' in col.lower()]
-        
-        for col in date_columns:
+        # Choose key according to available columns
+        if all(c in df.columns for c in ['Identificacion_cliente', 'Identificacion_Cuenta', 'Tipo_Facilidad']):
+            key_cols = ['Identificacion_cliente', 'Identificacion_Cuenta', 'Tipo_Facilidad']
+        elif all(c in df.columns for c in ['Id_Documento', 'Tipo_Facilidad']):
+            key_cols = ['Id_Documento', 'Tipo_Facilidad']
+        else:
+            # No sufficient columns to detect duplicates
+            return df
+
+        key_series = df[key_cols].astype(str).agg('|'.join, axis=1)
+        dup_mask = key_series.duplicated(keep=False)
+        if dup_mask.any():
             try:
-                # Convert to datetime, then to YYYYMMDD string format
-                corrected_df[col] = pd.to_datetime(corrected_df[col], errors='coerce')
-                corrected_df[col] = corrected_df[col].dt.strftime('%Y%m%d')
-            except Exception as e:
-                self.logger.warning(f"Date conversion failed for column {col} in {subtype}: {str(e)}")
-        
-        # Common numeric column patterns
-        numeric_columns = [col for col in corrected_df.columns if any(keyword in col.lower() 
-                          for keyword in ['valor', 'monto', 'saldo', 'avaluo', 'amount'])]
-        
-        for col in numeric_columns:
+                self.logger.info(f"TDC Tarjeta_repetida: detected {int(dup_mask.sum())} duplicate record(s) by key {key_cols}")
+            except Exception:
+                pass
             try:
-                # Convert to numeric, replacing errors with NaN
-                corrected_df[col] = pd.to_numeric(corrected_df[col], errors='coerce')
+                for idx in df[dup_mask].index:
+                    self._add_incidence(
+                        incidence_type=IncidenceType.BUSINESS_RULE_VIOLATION,
+                        severity=IncidenceSeverity.MEDIUM,
+                        rule_id='TARJETA_REPETIDA',
+                        description='Duplicate credit card detected (excluding Numero_Prestamo)',
+                        data={'record_index': int(idx), 'key_columns': ','.join(key_cols)}
+                    )
+            except Exception:
+                pass
+
+            try:
+                self._store_incidences('TARJETA_REPETIDA', [{
+                    'key': key_series.loc[i]
+                } for i in df[dup_mask].index], context)
+            except Exception:
+                pass
+
+            try:
+                self._export_error_subset(df, dup_mask, 'TDC_AT12', 'TARJETA_REPETIDA', context, None)
             except Exception as e:
-                self.logger.warning(f"Numeric conversion failed for column {col} in {subtype}: {str(e)}")
-        
-        return corrected_df
+                self.logger.warning(f"Failed to export TARJETA_REPETIDA subset: {e}")
+
+        return df
     
-    def _apply_business_corrections(self, df: pd.DataFrame, subtype: str, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Apply AT12-specific business rule corrections for Phase 1.
+    def _process_sobregiro_data(self, df: pd.DataFrame, context: TransformationContext, 
+                              result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Process Sobregiro specific data according to Stage 2 specifications."""
+        self.logger.info("Processing SOBREGIRO_AT12 data - Stage 2")
         
-        Args:
-            df: DataFrame to correct
-            subtype: Data subtype
-            context: Transformation context
-            source_data: Dictionary of all source dataframes for lookups
-            
-        Returns:
-            DataFrame with business corrections applied
-        """
-        if subtype != 'BASE_AT12':
+        # 2.2. SOBREGIRO_AT12 Processing
+        # Apply the same JOIN and date mapping logic as TDC
+        # The Numero_Garantia field is not modified for SOBREGIRO
+        df = self._apply_date_mapping_sobregiro(df, context, source_data)
+        
+        return df
+    
+    def _process_valores_data(self, df: pd.DataFrame, context: TransformationContext, 
+                            result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Process Valores specific data according to Stage 2 specifications."""
+        self.logger.info("Processing VALORES_AT12 data - Stage 2")
+        
+        # 2.3. VALORES_AT12 Generation
+        # Construct the securities atom with complete, final column structure
+        df = self._generate_valores_atom(df, context, source_data)
+        
+        return df
+    
+    def _generate_numero_garantia_tdc(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """Generate unique guarantee codes for TDC_AT12 according to Stage 2.1 specifications."""
+        self.logger.info("Generating Número_Garantía for TDC_AT12")
+        
+        # Preconditions: required columns (Numero_Prestamo no longer part of key)
+        required_cols = ['Id_Documento', 'Tipo_Facilidad']
+        missing_required = [c for c in required_cols if c not in df.columns]
+        if missing_required:
+            self.logger.warning(f"Skipping Número_Garantía generation; missing columns: {missing_required}")
+            # Ensure column exists even if we skip
+            if 'Numero_Garantia' not in df.columns:
+                df = df.copy()
+                df['Numero_Garantia'] = None
             return df
 
-        corrected_df = df.copy()
-
-        # 1.1. EEOR TABULAR: Whitespace Errors
-        for col in corrected_df.select_dtypes(include=['object']).columns:
-            if corrected_df[col].dtype == 'object':
-                corrected_df[col] = corrected_df[col].str.strip()
-                corrected_df[col] = corrected_df[col].str.replace(r'\s+', ' ', regex=True)
-
-        # 1.2. Error 0301: Id_Documento Logic for Mortgage Guarantees
-        if 'Tipo_Garantia' in corrected_df.columns and 'Id_Documento' in corrected_df.columns:
-            mask_0301 = corrected_df['Tipo_Garantia'] == '0301'
-            doc_col = corrected_df.loc[mask_0301, 'Id_Documento'].astype(str)
-
-            # Sub-rule 1
-            mask_sub1 = doc_col.str.slice(8, 10).isin(['01', '41', '42']) & (doc_col.str.len() > 10)
-            corrected_df.loc[mask_0301 & mask_sub1, 'Id_Documento'] = doc_col[mask_sub1].str.slice(-10)
-
-            # Sub-rule 3
-            mask_sub3 = doc_col.str.slice(0, 3).isin(['100', '110', '120', '123', '810'])
-            corrected_df.loc[mask_0301 & mask_sub3 & (doc_col.str.len() > 11), 'Id_Documento'] = doc_col[mask_sub3 & (doc_col.str.len() > 11)].str.slice(0, 11)
-            corrected_df.loc[mask_0301 & mask_sub3 & (doc_col.str.len() < 11), 'Id_Documento'] = doc_col[mask_sub3 & (doc_col.str.len() < 11)].str.pad(width=11, side='right', fillchar='0')
-
-        # 1.3. COMA EN FINCA EMPRESA
-        if 'Id_Documento' in corrected_df.columns:
-            corrected_df['Id_Documento'] = corrected_df['Id_Documento'].str.replace(',', '', regex=False)
-
-        # 1.4. Fecha Cancelación Errada
-        if 'Fecha_Vencimiento' in corrected_df.columns:
-            corrected_df['Fecha_Vencimiento'] = pd.to_datetime(corrected_df['Fecha_Vencimiento'], errors='coerce')
-            mask = (corrected_df['Fecha_Vencimiento'].dt.year > 2100) | (corrected_df['Fecha_Vencimiento'].dt.year < 1985)
-            corrected_df.loc[mask, 'Fecha_Vencimiento'] = pd.to_datetime('2100-12-01')
-
-        # 1.5. Fecha Avalúo Errada
-        if 'Fecha_Ultima_Actualizacion' in corrected_df.columns and 'AT03_CREDITOS' in source_data:
-            at03_df = source_data['AT03_CREDITOS']
-            if not at03_df.empty and 'Numero_Prestamo' in corrected_df.columns and 'num_cta' in at03_df.columns and 'fec_ini_prestamo' in at03_df.columns:
-                corrected_df['Fecha_Ultima_Actualizacion'] = pd.to_datetime(corrected_df['Fecha_Ultima_Actualizacion'], errors='coerce')
-                last_day_prev_month = pd.to_datetime(context.period, format='%Y%m') - pd.DateOffset(days=1)
-                mask = (corrected_df['Fecha_Ultima_Actualizacion'] > last_day_prev_month) | \
-                       (corrected_df['Fecha_Ultima_Actualizacion'].dt.year < 1985) | \
-                       (corrected_df['Fecha_Ultima_Actualizacion'].isna())
-                
-                merged_df = corrected_df.merge(at03_df[['num_cta', 'fec_ini_prestamo']], left_on='Numero_Prestamo', right_on='num_cta', how='left')
-                corrected_df.loc[mask, 'Fecha_Ultima_Actualizacion'] = pd.to_datetime(merged_df['fec_ini_prestamo'], errors='coerce')
-
-        # 1.6. Inmuebles sin Póliza
-        if 'POLIZA_HIPOTECAS_AT12' in source_data and 'Tipo_Garantia' in corrected_df.columns and 'Tipo_Poliza' in corrected_df.columns:
-            poliza_df = source_data['POLIZA_HIPOTECAS_AT12']
-            if not poliza_df.empty and 'Numero_Prestamo' in corrected_df.columns and 'numcred' in poliza_df.columns and 'seguro_incendio' in poliza_df.columns:
-                mask_0207 = (corrected_df['Tipo_Garantia'] == '0207') & corrected_df['Tipo_Poliza'].isna()
-                merged_df = corrected_df[mask_0207].merge(poliza_df, left_on='Numero_Prestamo', right_on='numcred', how='left')
-                if not merged_df.empty:
-                     corrected_df.loc[merged_df.index, 'Tipo_Poliza'] = merged_df['seguro_incendio']
-
-            mask_0208 = (corrected_df['Tipo_Garantia'] == '0208') & corrected_df['Tipo_Poliza'].isna()
-            corrected_df.loc[mask_0208, 'Tipo_Poliza'] = '01'
-
-        # 1.7. Inmuebles sin Finca
-        if 'Tipo_Garantia' in corrected_df.columns and 'Id_Documento' in corrected_df.columns:
-            invalid_values = ["0/0", "1/0", "1/1", "1", "9999/1", "0/1", "0"]
-            mask = corrected_df['Tipo_Garantia'].isin(['0207', '0208', '0209']) & \
-                   (corrected_df['Id_Documento'].isin(invalid_values) | corrected_df['Id_Documento'].isna())
-            corrected_df.loc[mask, 'Id_Documento'] = '9999/9999'
-
-        # 1.8. Póliza Auto Comercial
-        if 'Tipo_Garantia' in corrected_df.columns and 'Nombre_Organismo' in corrected_df.columns:
-            mask = (corrected_df['Tipo_Garantia'] == '0106') & (corrected_df['Nombre_Organismo'].isna())
-            corrected_df.loc[mask, 'Nombre_Organismo'] = '700'
-
-        # 1.9. Error en Póliza de Auto
-        if 'GARANTIA_AUTOS_AT12' in source_data and 'Tipo_Garantia' in corrected_df.columns and 'Id_Documento' in corrected_df.columns:
-            garantia_autos_df = source_data['GARANTIA_AUTOS_AT12']
-            if not garantia_autos_df.empty and 'Numero_Prestamo' in corrected_df.columns and 'numcred' in garantia_autos_df.columns and 'num_poliza' in garantia_autos_df.columns:
-                mask = (corrected_df['Tipo_Garantia'] == '0101') & corrected_df['Id_Documento'].isna()
-                merged_df = corrected_df[mask].merge(garantia_autos_df, left_on='Numero_Prestamo', right_on='numcred', how='left')
-                if not merged_df.empty:
-                    corrected_df.loc[merged_df.index, 'Id_Documento'] = merged_df['num_poliza']
-
-        # 1.10. Inmueble sin Avaluadora
-        if 'Tipo_Garantia' in corrected_df.columns and 'Nombre_Organismo' in corrected_df.columns:
-            mask = corrected_df['Tipo_Garantia'].isin(['0207', '0208', '0209']) & (corrected_df['Nombre_Organismo'].isna())
-            corrected_df.loc[mask, 'Nombre_Organismo'] = '774'
-
-        return corrected_df
-    
-    def _process_tdc_data(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Process TDC_AT12 specific transformations.
+        # Step 1: Clear the Número_Garantía column completely
+        df = df.copy()
+        df['Numero_Garantia'] = None
         
-        Args:
-            df: TDC DataFrame
-            context: Transformation context
-            result: Result object to update
-            source_data: Dictionary of all source dataframes for lookups
+        # Step 2: Sort DataFrame by Id_Documento in descending order (per spec)
+        df = df.sort_values('Id_Documento', ascending=False).reset_index(drop=True)
+        
+        # Step 3: Create unique key and assign sequential numbers starting at 855,500
+        unique_keys = {}
+        next_number = 855500
+        
+        incidences = []
+        
+        for idx, row in df.iterrows():
+            # Create unique key: Id_Documento + Tipo_Facilidad (Numero_Prestamo excluded)
+            unique_key = f"{row.get('Id_Documento', '')}{row.get('Tipo_Facilidad', '')}"
             
-        Returns:
-            Processed TDC DataFrame
-        """
-        self.logger.info("Processing TDC_AT12 data")
-        processed_df = df.copy()
-
-        # 2.1. Número_Garantía Generation
-        if 'Número_Garantía' in processed_df.columns:
-            mask_empty_garantia = processed_df['Número_Garantía'].isna()
-            if mask_empty_garantia.any():
-                df_to_update = processed_df[mask_empty_garantia].copy()
-                df_to_update['unique_key'] = df_to_update['Id_Documento'].astype(str) + df_to_update['Numero_Prestamo'].astype(str) + df_to_update['Tipo_Facilidad'].astype(str)
-
-                unique_keys_to_number = df_to_update['unique_key'].unique()
+            if unique_key not in unique_keys:
+                # First occurrence: assign new sequential number
+                unique_keys[unique_key] = next_number
+                df.at[idx, 'Numero_Garantia'] = next_number
                 
-                start_id = 855500
-                new_guarantee_ids = range(start_id, start_id + len(unique_keys_to_number))
-                key_to_id_map = dict(zip(unique_keys_to_number, new_guarantee_ids))
+                # Record using standardized format
+                self._add_incidence(
+                    incidence_type=IncidenceType.DATA_QUALITY,
+                    severity=IncidenceSeverity.MEDIUM,
+                    rule_id='TDC_NUMERO_GARANTIA_NEW_ASSIGNMENT',
+                    description=f'New guarantee number {next_number} assigned',
+                    data={'record_index': int(idx), 'column_name': 'Numero_Garantia', 'original_value': '', 'corrected_value': str(next_number)}
+                )
                 
-                new_garantias = df_to_update['unique_key'].map(key_to_id_map)
-                processed_df.loc[mask_empty_garantia, 'Número_Garantía'] = new_garantias
-
-        # 2.1. Date Mapping
-        if 'AT02_CUENTAS' in source_data:
-            at02_df = source_data['AT02_CUENTAS']
-            if 'Identificacion_cliente' in processed_df.columns and 'Identificacion_Cuenta' in processed_df.columns and \
-               'Identificacion_cliente' in at02_df.columns and 'Identificacion_Cuenta' in at02_df.columns:
-                merged_df = processed_df.merge(at02_df, on=['Identificacion_cliente', 'Identificacion_Cuenta'], how='left')
-                if 'Fecha_Apertura' in processed_df.columns and 'Fecha_Apertura_cuenta' in merged_df.columns:
-                    processed_df['Fecha_Apertura'] = merged_df['Fecha_Apertura_cuenta']
-
-        return processed_df
-
-    def _process_sobregiro_data(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Process SOBREGIRO_AT12 specific transformations."""
-        self.logger.info("Processing SOBREGIRO_AT12 data")
-        processed_df = df.copy()
-
-        # 2.2. Merge with BASE_AT12
-        if 'BASE_AT12' in source_data:
-            base_at12_df = source_data['BASE_AT12']
-            if 'Numero_Prestamo' in processed_df.columns and 'Numero_Prestamo' in base_at12_df.columns:
-                merged_df = processed_df.merge(base_at12_df, on='Numero_Prestamo', how='inner', suffixes=('', '_base'))
+                # Also keep legacy format for backward compatibility
+                incidences.append({
+                    'Index': idx,
+                    'Id_Documento': row.get('Id_Documento', ''),
+                    'Numero_Prestamo': row.get('Numero_Prestamo', ''),
+                    'Tipo_Facilidad': row.get('Tipo_Facilidad', ''),
+                    'Numero_Garantia_Assigned': next_number,
+                    'Action': 'New guarantee number assigned'
+                })
                 
-                # Mapping fields
-                processed_df['Fecha_Apertura'] = merged_df['Fecha_Apertura_base']
-                processed_df['Fecha_Vencimiento'] = merged_df['Fecha_Vencimiento_base']
-                processed_df['Valor_Inicial'] = merged_df['Valor_Inicial_base']
-                processed_df['Saldo_Actual'] = merged_df['Saldo_Actual_base']
-                processed_df['Tipo_Garantia'] = '0103'
-                processed_df['Id_Documento'] = merged_df['Numero_Prestamo']
-                processed_df['Numero_Garantia'] = 'SOB' + merged_df['Numero_Prestamo'].astype(str)
-
-        return processed_df
-
-    def _process_valores_data(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Process VALORES_AT12 specific transformations."""
-        self.logger.info("Processing VALORES_AT12 data")
-        processed_df = df.copy()
-
-        # 2.3. Merge with BASE_AT12
-        if 'BASE_AT12' in source_data:
-            base_at12_df = source_data['BASE_AT12']
-            if 'Numero_Prestamo' in processed_df.columns and 'Numero_Prestamo' in base_at12_df.columns:
-                merged_df = processed_df.merge(base_at12_df, on='Numero_Prestamo', how='inner', suffixes=('', '_base'))
-
-                # Mapping fields
-                processed_df['Fecha_Apertura'] = merged_df['Fecha_Apertura_base']
-                processed_df['Fecha_Vencimiento'] = merged_df['Fecha_Vencimiento_base']
-                processed_df['Valor_Inicial'] = merged_df['Valor_Inicial_base']
-                processed_df['Saldo_Actual'] = merged_df['Saldo_Actual_base']
-                processed_df['Tipo_Garantia'] = '0102'
-                processed_df['Id_Documento'] = merged_df['Numero_Prestamo']
-                processed_df['Numero_Garantia'] = 'VAL' + merged_df['Numero_Prestamo'].astype(str)
-
-        return processed_df
-
-    def _phase3_filter_fuera_cierre(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """
-        Phase 3: Filters loans that are out of the closing cycle.
-        This phase identifies and filters out loans that are not part of the current reporting period.
-        """
-        self.logger.info("Executing Phase 3: Filtering FUERA_CIERRE loans")
+                next_number += 1
+            else:
+                # Subsequent occurrence: use existing number
+                df.at[idx, 'Numero_Garantia'] = unique_keys[unique_key]
+                
+                incidences.append({
+                    'Index': idx,
+                    'Id_Documento': row.get('Id_Documento', ''),
+                    'Numero_Prestamo': row.get('Numero_Prestamo', ''),
+                    'Tipo_Facilidad': row.get('Tipo_Facilidad', ''),
+                    'Numero_Garantia_Assigned': unique_keys[unique_key],
+                    'Action': 'Existing guarantee number reused'
+                })
         
-        if 'FUERA_CIERRE_AT12' not in source_data or source_data['FUERA_CIERRE_AT12'].empty:
-            self.logger.warning("FUERA_CIERRE_AT12 data not found or is empty. Skipping Phase 3.")
+        # Store incidences
+        if incidences:
+            self._store_incidences('TDC_NUMERO_GARANTIA_GENERATION', incidences, context)
+        
+        self.logger.info(f"Generated {len(unique_keys)} unique guarantee numbers for TDC_AT12")
+        return df
+    
+    def _apply_date_mapping_tdc(self, df: pd.DataFrame, context: TransformationContext, 
+                               source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Apply date mapping for TDC using AT02 per new rule.
+
+        Join:
+          - TDC.Id_Documento ↔ AT02.identificacion_de_cuenta (supporting common variants)
+        Map:
+          - TDC.Fecha_Ultima_Actualizacion ← AT02.Fecha_inicio (variants supported)
+          - TDC.Fecha_Vencimiento ← AT02.Fecha_Vencimiento
+        """
+        self.logger.info("Applying date mapping for TDC_AT12 (Id_Documento ↔ identificacion_de_cuenta)")
+
+        if 'AT02_CUENTAS' not in source_data or source_data['AT02_CUENTAS'].empty:
+            self.logger.warning("AT02_CUENTAS data not found or is empty. Skipping date mapping for TDC.")
             return df
 
-        fuera_cierre_df = source_data['FUERA_CIERRE_AT12']
+        at02_df = source_data['AT02_CUENTAS']
+
+        # Resolve keys and date columns with robust candidates
+        tdc_key = self._col_any(df, ['Id_Documento', 'id_documento', 'ID_DOCUMENTO'])
+        at02_key = self._col_any(at02_df, ['identificacion_de_cuenta', 'Identificacion_de_cuenta', 'Identificacion_Cuenta', 'identificacion_cuenta'])
+        at02_start = self._col_any(at02_df, ['Fecha_inicio', 'Fecha_Inicio', 'fecha_inicio', 'Fecha_proceso'])
+        at02_end = self._col_any(at02_df, ['Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento'])
+
+        missing = []
+        if not tdc_key:
+            missing.append('Id_Documento')
+        if not at02_key:
+            missing.append('identificacion_de_cuenta')
+        if not at02_start:
+            missing.append('Fecha_inicio')
+        if not at02_end:
+            missing.append('Fecha_Vencimiento')
+        if missing:
+            self.logger.error(f"Missing columns for TDC date mapping: {missing}")
+            return df
+
+        original_count = len(df)
+        right = at02_df[[at02_key, at02_start, at02_end]].copy()
+        right.columns = ['_key_at02', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']
+
+        left = df.copy()
+        left['_key_tdc'] = left[tdc_key].astype(str)
+        right['_key_at02'] = right['_key_at02'].astype(str)
+
+        merged = left.merge(right, left_on='_key_tdc', right_on='_key_at02', how='left')
+
+        incidences = []
+        for idx, row in merged.iterrows():
+            updated = False
+            if pd.notna(row.get('Fecha_inicio_at02')) and 'Fecha_Ultima_Actualizacion' in merged.columns:
+                merged.at[idx, 'Fecha_Ultima_Actualizacion'] = row['Fecha_inicio_at02']
+                updated = True
+            if pd.notna(row.get('Fecha_Vencimiento_at02')) and 'Fecha_Vencimiento' in merged.columns:
+                merged.at[idx, 'Fecha_Vencimiento'] = row['Fecha_Vencimiento_at02']
+                updated = True
+            if updated:
+                incidences.append({
+                    'Index': int(idx),
+                    'Id_Documento': row.get(tdc_key, ''),
+                    'Fecha_Ultima_Actualizacion_Updated': row.get('Fecha_inicio_at02', ''),
+                    'Fecha_Vencimiento_Updated': row.get('Fecha_Vencimiento_at02', ''),
+                    'Action': 'Date mapping applied from AT02_CUENTAS (Id_Documento↔identificacion_de_cuenta)'
+                })
+
+        # Drop helper columns
+        merged.drop(columns=[c for c in merged.columns if c in ['_key_tdc', '_key_at02', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']], inplace=True, errors='ignore')
+
+        if incidences:
+            self._store_incidences('TDC_DATE_MAPPING', incidences, context)
+        self.logger.info(f"Applied date mapping to {len(incidences)} out of {original_count} TDC records")
+
+        return merged
+    
+    def _apply_date_mapping_sobregiro(self, df: pd.DataFrame, context: TransformationContext,
+                                     source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Apply date mapping for SOBREGIRO_AT12 using AT02_CUENTAS.
+
+        Maps Fecha_Apertura from AT02.Fecha_proceso and Fecha_Cancelacion from AT02.Fecha_Vencimiento
+        when available. Falls back to original values without relying on pandas suffixes.
+        """
+        self.logger.info("Applying date mapping for SOBREGIRO_AT12")
+
+        if 'AT02_CUENTAS' not in source_data or source_data['AT02_CUENTAS'].empty:
+            self.logger.warning("AT02_CUENTAS data not found or is empty. Skipping SOBREGIRO date mapping.")
+            return df
+
+        at02_df = source_data['AT02_CUENTAS']
+
+        # Required keys and columns
+        keys = ['Identificacion_cliente', 'Identificacion_Cuenta']
+        base_date_cols = []
+        # Prefer schema-aligned columns for SOBREGIRO
+        if 'Fecha_Ultima_Actualizacion' in df.columns:
+            base_date_cols.append('Fecha_Ultima_Actualizacion')
+        if 'Fecha_Vencimiento' in df.columns:
+            base_date_cols.append('Fecha_Vencimiento')
+
+        missing_keys_df = [k for k in keys if k not in df.columns]
+        missing_keys_at02 = [k for k in keys if k not in at02_df.columns]
+        missing_at02_dates = [c for c in ['Fecha_proceso', 'Fecha_Vencimiento'] if c not in at02_df.columns]
+
+        if missing_keys_df or missing_keys_at02 or (not base_date_cols and missing_at02_dates):
+            self.logger.error(
+                f"Missing columns for SOBREGIRO mapping. DF keys missing: {missing_keys_df}, "
+                f"AT02 keys missing: {missing_keys_at02}, AT02 date cols missing: {missing_at02_dates}"
+            )
+            return df
+
+        # Prepare left (base) frame with explicit base suffix for safe fallback
+        left_cols = keys + base_date_cols
+        left = df.reset_index(drop=True)[left_cols].copy()
+        rename_base = {c: f"{c}_base" for c in base_date_cols}
+        if rename_base:
+            left.rename(columns=rename_base, inplace=True)
+
+        # Prepare right (AT02) frame with target names
+        right = at02_df[keys + [c for c in ['Fecha_proceso', 'Fecha_Vencimiento'] if c in at02_df.columns]].copy()
+        right.rename(columns={
+            'Fecha_proceso': 'Fecha_Ultima_Actualizacion_at02',
+            'Fecha_Vencimiento': 'Fecha_Vencimiento_at02'
+        }, inplace=True)
+
+        # Merge
+        merged = left.merge(right, on=keys, how='left')
+
+        # Diagnostics (debug level to avoid noise in INFO)
+        try:
+            self.logger.debug(f"SOBREGIRO merged columns: {list(merged.columns)}")
+        except Exception:
+            pass
+
+        # Apply mapped dates with fallback to base
+        out = df.reset_index(drop=True).copy()
+
+        if 'Fecha_Ultima_Actualizacion' in base_date_cols:
+            base_col = 'Fecha_Ultima_Actualizacion_base' if 'Fecha_Ultima_Actualizacion_base' in merged.columns else 'Fecha_Ultima_Actualizacion'
+            if 'Fecha_Ultima_Actualizacion_at02' in merged.columns:
+                out['Fecha_Ultima_Actualizacion'] = merged['Fecha_Ultima_Actualizacion_at02'].fillna(merged.get(base_col))
+            else:
+                out['Fecha_Ultima_Actualizacion'] = merged.get(base_col)
+
+        if 'Fecha_Vencimiento' in base_date_cols:
+            base_col = 'Fecha_Vencimiento_base' if 'Fecha_Vencimiento_base' in merged.columns else 'Fecha_Vencimiento'
+            if 'Fecha_Vencimiento_at02' in merged.columns:
+                out['Fecha_Vencimiento'] = merged['Fecha_Vencimiento_at02'].fillna(merged.get(base_col))
+            else:
+                out['Fecha_Vencimiento'] = merged.get(base_col)
+
+        # Incidences (legacy storage for traceability)
+        incidences = []
+        if 'Fecha_Ultima_Actualizacion' in base_date_cols and 'Fecha_Ultima_Actualizacion_at02' in merged.columns:
+            updated = merged['Fecha_Ultima_Actualizacion_at02'].notna().sum()
+            incidences.append({'Field': 'Fecha_Ultima_Actualizacion', 'Updated_From_AT02': int(updated), 'Action': 'Date mapping applied from AT02_CUENTAS'})
+        if 'Fecha_Vencimiento' in base_date_cols and 'Fecha_Vencimiento_at02' in merged.columns:
+            updated = merged['Fecha_Vencimiento_at02'].notna().sum()
+            incidences.append({'Field': 'Fecha_Vencimiento', 'Updated_From_AT02': int(updated), 'Action': 'Date mapping applied from AT02_CUENTAS'})
+        if incidences:
+            self._store_incidences('SOBREGIRO_DATE_MAPPING', incidences, context)
+
+        return out
+    
+    def _generate_valores_atom(self, df: pd.DataFrame, context: TransformationContext, 
+                              source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Generate VALORES_AT12 atom according to Stage 2.3 specifications."""
+        self.logger.info("Generating VALORES_AT12 atom")
+        
+        # Step 1: Select a reference record from BASE_AT12 where Tipo_Garantia = '0507'
+        if 'BASE_AT12' not in source_data or source_data['BASE_AT12'].empty:
+            self.logger.warning("BASE_AT12 data not found or is empty. Cannot generate VALORES_AT12.")
+            return df
+        
+        base_df = source_data['BASE_AT12']
+        reference_records = base_df[base_df.get('Tipo_Garantia', '') == '0507']
+        
+        if reference_records.empty:
+            self.logger.warning("No reference record found with Tipo_Garantia = '0507'. Using first record as reference.")
+            if not base_df.empty:
+                reference_record = base_df.iloc[0]
+            else:
+                self.logger.error("BASE_AT12 is empty. Cannot generate VALORES_AT12.")
+                return df
+        else:
+            reference_record = reference_records.iloc[0]
+        
+        incidences = []
+        
+        # Step 2: Populate missing fields with reference record values
+        reference_fields = ['Clave_Pais', 'Clave_Empresa']
+        
+        for field in reference_fields:
+            if field not in df.columns:
+                df[field] = reference_record.get(field, '')
+                incidences.append({
+                    'Field': field,
+                    'Value_Added': reference_record.get(field, ''),
+                    'Action': f'Field {field} populated from reference record'
+                })
+            else:
+                # Fill missing values in existing columns
+                missing_mask = df[field].isna() | (df[field] == '')
+                if missing_mask.any():
+                    df.loc[missing_mask, field] = reference_record.get(field, '')
+                    incidences.append({
+                        'Field': field,
+                        'Records_Updated': missing_mask.sum(),
+                        'Value_Added': reference_record.get(field, ''),
+                        'Action': f'Missing values in {field} filled from reference record'
+                    })
+        
+        # Store incidences
+        if incidences:
+            self._store_incidences('VALORES_ATOM_GENERATION', incidences, context)
+        
+        self.logger.info(f"Generated VALORES_AT12 atom with {len(df)} records")
+        return df
+    
+    def _phase3_filter_fuera_cierre(self, df: pd.DataFrame, context: TransformationContext, 
+                                   result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Phase 3: Generate FUERA_CIERRE_AT12 Excel report according to Stage 3 specifications."""
+        self.logger.info("Executing Phase 3: Generate FUERA_CIERRE_AT12 Report")
+        
+        # Step 1: Execute query and get AFECTACIONES_AT12 input
+        if 'AFECTACIONES_AT12' not in source_data or source_data['AFECTACIONES_AT12'].empty:
+            self.logger.warning("AFECTACIONES_AT12 data not found or is empty. Skipping FUERA_CIERRE report generation.")
+            return df
+        
+        afectaciones_df = source_data['AFECTACIONES_AT12'].copy()
+        
+        # Step 2: Generate Excel report with three tabs
+        excel_report_path = self._generate_fuera_cierre_excel_report(afectaciones_df, context)
+        
+        # Step 3: Filter main DataFrame based on FUERA_CIERRE data (if available)
+        if 'FUERA_CIERRE_AT12' in source_data and not source_data['FUERA_CIERRE_AT12'].empty:
+            df = self._apply_fuera_cierre_filtering(df, source_data['FUERA_CIERRE_AT12'], context)
+        
+        # Store report path in result
+        if hasattr(result, 'artifacts'):
+            if not hasattr(result, 'artifacts') or result.artifacts is None:
+                result.artifacts = {}
+            result.artifacts['FUERA_CIERRE_REPORT'] = excel_report_path
+        
+        return df
+    
+    def _generate_fuera_cierre_excel_report(self, afectaciones_df: pd.DataFrame, context: TransformationContext) -> str:
+        """Generate FUERA_CIERRE_AT12 Excel report with three tabs according to Stage 3.1 specifications."""
+        self.logger.info("Generating FUERA_CIERRE_AT12 Excel report")
+        
+        from datetime import datetime
+        from dateutil.relativedelta import relativedelta
+        import os
+        
+        # Create output directory if it doesn't exist
+        # Use processed directory under transforms/AT12 to store reports
+        output_dir = context.paths.procesados_dir / 'reports'
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate report filename
+        report_filename = f"FUERA_CIERRE_AT12_{context.period}.xlsx"
+        report_path = output_dir / report_filename
+        
+        # Calculate date threshold for DESEMBOLSO (last three months)
+        current_date = datetime.now()
+        # Inclusive last three full months window start
+        three_months_ago = current_date - relativedelta(months=3)
+        
+        # Prepare data with special rules
+        processed_df = afectaciones_df.copy()
+        
+        # Apply special rule: If at_tipo_operacion is '0301', populate Nombre_Organismo with '182'
+        if 'at_tipo_operacion' in processed_df.columns:
+            mask_0301 = processed_df['at_tipo_operacion'] == '0301'
+            if 'Nombre_Organismo' not in processed_df.columns:
+                processed_df['Nombre_Organismo'] = ''
+            processed_df.loc[mask_0301, 'Nombre_Organismo'] = '182'
+        
+        # Distribute data into tabs according to specifications
+        tabs_data = self._distribute_afectaciones_into_tabs(processed_df, three_months_ago)
+        
+        # Create Excel file with tabs
+        incidences = []
+        try:
+            with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
+                for tab_name, tab_data in tabs_data.items():
+                    tab_data.to_excel(writer, sheet_name=tab_name, index=False)
+                    
+                    incidences.append({
+                        'Tab': tab_name,
+                        'Records_Count': len(tab_data),
+                        'Action': f'Created {tab_name} tab with {len(tab_data)} records'
+                    })
+            
+            # Store incidences
+            if incidences:
+                self._store_incidences('FUERA_CIERRE_EXCEL_GENERATION', incidences, context)
+            
+            self.logger.info(f"Generated FUERA_CIERRE_AT12 Excel report: {report_path}")
+            return str(report_path)
+            
+        except Exception as e:
+            self.logger.error(f"Error generating FUERA_CIERRE_AT12 Excel report: {str(e)}")
+            return ""
+    
+    def _distribute_afectaciones_into_tabs(self, df: pd.DataFrame, three_months_ago) -> Dict[str, pd.DataFrame]:
+        """Distribute AFECTACIONES data into three tabs according to Stage 3.1 specifications."""
+        tabs_data = {}
+        
+        # Convert date column if it exists and is string
+        if 'at_fecha_inicial_prestamo' in df.columns:
+            try:
+                df['at_fecha_inicial_prestamo'] = pd.to_datetime(df['at_fecha_inicial_prestamo'], errors='coerce')
+            except:
+                self.logger.warning("Could not convert at_fecha_inicial_prestamo to datetime")
+        
+        # DESEMBOLSO Tab: Records where at_fecha_inicial_prestamo is within the last three months
+        if 'at_fecha_inicial_prestamo' in df.columns:
+            desembolso_mask = df['at_fecha_inicial_prestamo'] >= three_months_ago
+            tabs_data['DESEMBOLSO'] = df[desembolso_mask].copy()
+        else:
+            tabs_data['DESEMBOLSO'] = pd.DataFrame()
+        
+        # PYME Tab: Records where Segmento is 'PYME' or 'BEC'
+        if 'Segmento' in df.columns:
+            pyme_mask = df['Segmento'].isin(['PYME', 'BEC'])
+            tabs_data['PYME'] = df[pyme_mask].copy()
+        else:
+            tabs_data['PYME'] = pd.DataFrame()
+        
+        # CARTERA Tab: All remaining records
+        used_indices = set()
+        if not tabs_data['DESEMBOLSO'].empty:
+            used_indices.update(tabs_data['DESEMBOLSO'].index)
+        if not tabs_data['PYME'].empty:
+            used_indices.update(tabs_data['PYME'].index)
+        
+        remaining_indices = df.index.difference(list(used_indices))
+        tabs_data['CARTERA'] = df.loc[remaining_indices].copy()
+        
+        return tabs_data
+    
+    def _apply_fuera_cierre_filtering(self, df: pd.DataFrame, fuera_cierre_df: pd.DataFrame, 
+                                     context: TransformationContext) -> pd.DataFrame:
+        """Apply filtering based on FUERA_CIERRE data."""
+        self.logger.info("Applying FUERA_CIERRE filtering")
         
         if 'Numero_Prestamo' not in df.columns or 'prestamo' not in fuera_cierre_df.columns:
-            self.logger.error("Required columns for Phase 3 are missing. Skipping.")
+            self.logger.error("Required columns for FUERA_CIERRE filtering are missing. Skipping.")
             return df
-
-        # Identify loans to be excluded
+        
         prestamos_to_exclude = fuera_cierre_df['prestamo'].unique()
         
-        # Filter the DataFrame
-        initial_rows = len(df)
-        filtered_df = df[~df['Numero_Prestamo'].isin(prestamos_to_exclude)]
-        final_rows = len(filtered_df)
+        # Identify excluded loans for incidence reporting
+        excluded_df = df[df['Numero_Prestamo'].isin(prestamos_to_exclude)]
+        incidences = []
+        for _, row in excluded_df.iterrows():
+            incidences.append({
+                'Numero_Prestamo': row['Numero_Prestamo'],
+                'Reason': 'Excluded due to FUERA_CIERRE',
+                'Period': context.period
+            })
         
-        self.logger.info(f"Phase 3 completed. Filtered out {initial_rows - final_rows} loans.")
+        if incidences:
+            self._store_incidences('FUERA_CIERRE_FILTERING', incidences, context)
+        
+        # Filter the DataFrame
+        filtered_df = df[~df['Numero_Prestamo'].isin(prestamos_to_exclude)]
+        self.logger.info(f"Filtered out {len(df) - len(filtered_df)} loans due to FUERA_CIERRE.")
         
         return filtered_df
-
-    def _phase4_valor_minimo_avaluo(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """
-        Phase 4: Validates the minimum appraisal value for guarantees.
-        This phase ensures that the guarantee value meets the required threshold based on the loan balance.
-        """
-        self.logger.info("Executing Phase 4: Validating VALOR_MINIMO_AVALUO")
+    
+    def _phase4_valor_minimo_avaluo(self, df: pd.DataFrame, context: TransformationContext, 
+                                  result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Phase 4: Validates the minimum appraisal value for guarantees according to specifications."""
+        self.logger.info("Executing Phase 4: VALOR_MINIMO_AVALUO_AT12 validation")
 
         if 'VALOR_MINIMO_AVALUO_AT12' not in source_data or source_data['VALOR_MINIMO_AVALUO_AT12'].empty:
             self.logger.warning("VALOR_MINIMO_AVALUO_AT12 data not found or is empty. Skipping Phase 4.")
             return df
 
-        valor_minimo_df = source_data['VALOR_MINIMO_AVALUO_AT12']
+        valor_minimo_df = source_data['VALOR_MINIMO_AVALUO_AT12'].copy()
         
         if 'AT03_CREDITOS' not in source_data or source_data['AT03_CREDITOS'].empty:
             self.logger.warning("AT03_CREDITOS data not found or is empty. Skipping Phase 4.")
@@ -454,42 +806,116 @@ class AT12TransformationEngine(TransformationEngine):
             
         at03_df = source_data['AT03_CREDITOS']
 
-        # 1. Filter VALOR_MINIMO_AVALUO_AT12
-        valor_minimo_df = valor_minimo_df[valor_minimo_df['nuevo_at_val_garantia'] > valor_minimo_df['nuevo_at_saldo_corte']]
-
-        # 2. Join with AT03_CREDITOS
-        if 'num_prestamo' in valor_minimo_df.columns and 'num_cta' in at03_df.columns:
-            merged_df = valor_minimo_df.merge(at03_df, left_on='num_prestamo', right_on='num_cta', how='inner')
+        # Step 1: Generate the VALOR_MINIMO_AVALUO_AT12 input (already provided)
+        self.logger.info(f"Processing {len(valor_minimo_df)} records from VALOR_MINIMO_AVALUO_AT12")
+        
+        # Step 2: Filter where cu_tipo contains any alphabetic characters (not purely numeric)
+        if 'cu_tipo' in valor_minimo_df.columns:
+            cu_tipo_str = valor_minimo_df['cu_tipo'].astype(str)
+            mask_alpha = cu_tipo_str.str.contains(r"[A-Za-z]", regex=True, na=False)
+            valor_minimo_df = valor_minimo_df[mask_alpha]
+            self.logger.info(f"Filtered to {len(valor_minimo_df)} records where cu_tipo contains alphabetic characters")
         else:
-            self.logger.error("Required columns for merging in Phase 4 are missing.")
+            self.logger.warning("Column 'cu_tipo' not found in VALOR_MINIMO_AVALUO_AT12. Proceeding without filtering.")
+
+        # Step 3: Perform JOIN with AT03_CREDITOS using at_num_de_prestamos = num_cta
+        join_key_valor = 'at_num_de_prestamos'
+        join_key_at03 = 'num_cta'
+        
+        if join_key_valor not in valor_minimo_df.columns:
+            self.logger.error(f"Required column '{join_key_valor}' not found in VALOR_MINIMO_AVALUO_AT12.")
+            return df
+            
+        if join_key_at03 not in at03_df.columns:
+            self.logger.error(f"Required column '{join_key_at03}' not found in AT03_CREDITOS.")
             return df
 
-        # 3. Conditional Logic
-        merged_df['saldo'] = merged_df.apply(
-            lambda row: row['nuevo_at_saldo_corte'] if row['nuevo_at_saldo_corte'] > row['Saldo_Inicial'] else row['Saldo_Inicial'],
-            axis=1
-        )
+        merged_df = valor_minimo_df.merge(at03_df, left_on=join_key_valor, right_on=join_key_at03, how='inner')
+        self.logger.info(f"Merged data resulted in {len(merged_df)} records")
+        
+        if merged_df.empty:
+            self.logger.warning("No matching records found after JOIN. Skipping Phase 4 validation.")
+            return df
 
-        # 4. Final Comparison
-        incident_mask = merged_df['saldo'] > merged_df['nuevo_at_val_garantia']
-        incident_df = merged_df[incident_mask]
+        # Step 4: For each record, compare saldo (from AT03) with nuevo_at_valor_garantia (from VALOR_MINIMO)
+        incidences = []
+        updates_applied = 0
+        
+        for idx, row in merged_df.iterrows():
+            saldo = row.get('saldo', 0)
+            nuevo_valor_garantia = row.get('nuevo_at_valor_garantia', 0)
+            
+            # Standardized incidence data
+            incidence_data = {
+                'id_cliente': row.get('id_cliente', ''),
+                'numero_prestamo': row.get(join_key_valor, ''),
+                'valor_garantia': nuevo_valor_garantia,
+                'saldo_adeudado': saldo
+            }
+            
+            if saldo > nuevo_valor_garantia:
+                # Problem: Report and use original values
+                self._add_incidence(
+                    IncidenceType.VALIDATION_FAILURE,
+                    IncidenceSeverity.HIGH,
+                    'VALOR_MINIMO_AVALUO_AT12',
+                    "El saldo del préstamo excede el valor de la garantía.",
+                    incidence_data
+                )
 
-        if not incident_df.empty:
-            # Here you would typically report the incidents
-            self.logger.warning(f"Phase 4 found {len(incident_df)} incidents related to minimum appraisal value.")
+                # Legacy support for old incidence format
+                incidences.append({
+                    'at_num_de_prestamos': row.get(join_key_valor, ''),
+                    'saldo_at03': saldo,
+                    'nuevo_at_valor_garantia': nuevo_valor_garantia,
+                    'comparison_result': 'PROBLEM',
+                    'action': 'Using original values',
+                    'reason': 'Saldo exceeds guarantee value',
+                    'period': context.period
+                })
+            else:
+                # Correct: Update main DataFrame
+                mask = df['Numero_Prestamo'] == row.get(join_key_valor, '')
+                if mask.any():
+                    if 'at_valor_garantia' in df.columns:
+                        df.loc[mask, 'at_valor_garantia'] = nuevo_valor_garantia
+                    if 'at_valor_pond_garantia' in df.columns:
+                        df.loc[mask, 'at_valor_pond_garantia'] = row.get('nuevo_at_valor_pond_garantia', 0)
+                    updates_applied += 1
+                
+                incidences.append({
+                    'at_num_de_prestamos': row.get(join_key_valor, ''),
+                    'saldo_at03': saldo,
+                    'nuevo_at_valor_garantia': nuevo_valor_garantia,
+                    'comparison_result': 'CORRECT',
+                    'action': 'Using updated values (nuevo_at_valor_garantia, nuevo_at_valor_pond_garantia)',
+                    'reason': 'Saldo is within guarantee value limits',
+                    'period': context.period
+                })
 
-        # The main DataFrame `df` is not modified in this phase, as it's a validation step.
-        # Incidents are reported, but the records are not removed from the main flow.
+        # Store incidences
+        if incidences:
+            self._store_incidences('VALOR_MINIMO_AVALUO_VALIDATION', incidences, context)
+            # Export only the PROBLEM rows from the original VALOR_MINIMO_AVALUO_AT12 file (full columns)
+            try:
+                problem_keys = [inc.get('at_num_de_prestamos') for inc in incidences if inc.get('comparison_result') == 'PROBLEM']
+                if problem_keys:
+                    mask_export = valor_minimo_df[join_key_valor].isin(problem_keys)
+                    self._export_error_subset(valor_minimo_df, mask_export, 'VALOR_MINIMO_AVALUO_AT12', 'VALOR_MINIMO_AVALUO_VALIDATION_PROBLEM', context, None)
+            except Exception as e:
+                self.logger.warning(f"Failed exporting VALOR_MINIMO_AVALUO problems: {e}")
+            
+        problem_count = len([inc for inc in incidences if inc['comparison_result'] == 'PROBLEM'])
+        correct_count = len([inc for inc in incidences if inc['comparison_result'] == 'CORRECT'])
+        
+        self.logger.info(f"Phase 4 completed: {problem_count} problems reported, {correct_count} records validated as correct, {updates_applied} updates applied")
+        
         return df
     
+
+    
     def _store_incidences(self, subtype: str, incidences: List[Dict], context: TransformationContext) -> None:
-        """Store incidences for later reporting.
-        
-        Args:
-            subtype: Data subtype
-            incidences: List of incidence records
-            context: Transformation context
-        """
+        """Store incidences for later reporting (legacy method for backward compatibility)."""
         if subtype not in self.incidences_data:
             self.incidences_data[subtype] = []
         
@@ -499,13 +925,7 @@ class AT12TransformationEngine(TransformationEngine):
     def _generate_outputs(self, context: TransformationContext, 
                          transformed_data: Dict[str, pd.DataFrame], 
                          result: TransformationResult) -> None:
-        """Generate AT12 output files.
-        
-        Args:
-            context: Transformation context
-            transformed_data: Transformed data by subtype
-            result: Result object to update
-        """
+        """Generate AT12 output files."""
         self.logger.info("Generating AT12 outputs")
         
         # Generate incidence files
@@ -519,35 +939,29 @@ class AT12TransformationEngine(TransformationEngine):
     
     def _generate_incidence_files(self, context: TransformationContext, result: TransformationResult) -> None:
         """Generate incidence CSV files.
-        
-        Args:
-            context: Transformation context
-            result: Result object to update
+
+        - Per-rule, full-row subsets (INC_*) ya se exportan durante cada regla.
+        - EEOO_TABULAR solo para validaciones globales de base (whitelist).
         """
+        allowed_global = {'EEOR_TABULAR', 'FUERA_CIERRE_EXCEL_GENERATION'}
+
         for subtype, incidences in self.incidences_data.items():
-            if incidences:
-                # Convert incidences to DataFrame
+            if not incidences or subtype not in allowed_global:
+                continue
+            try:
                 incidences_df = pd.DataFrame(incidences)
-                
-                # Generate incidence filename
                 incidence_filename = f"EEOO_TABULAR_{subtype}_AT12_{context.period}.csv"
                 incidence_path = context.paths.get_incidencia_path(incidence_filename)
-                
-                # Save incidence file
                 if self._save_dataframe_as_csv(incidences_df, incidence_path):
                     result.incidence_files.append(incidence_path)
-                    self.logger.info(f"Generated incidence file: {incidence_path}")
+                    self.logger.info(f"Generated global incidence file: {incidence_path}")
+            except Exception as e:
+                self.logger.warning(f"Failed to export global incidence {subtype}: {e}")
     
     def _generate_processed_files(self, context: TransformationContext, 
                                 transformed_data: Dict[str, pd.DataFrame], 
                                 result: TransformationResult) -> None:
-        """Generate processed CSV files.
-        
-        Args:
-            context: Transformation context
-            transformed_data: Transformed data by subtype
-            result: Result object to update
-        """
+        """Generate processed CSV files."""
         for subtype, df in transformed_data.items():
             if not df.empty:
                 # Generate processed filename
@@ -562,47 +976,576 @@ class AT12TransformationEngine(TransformationEngine):
     def _generate_consolidated_file(self, context: TransformationContext, 
                                   transformed_data: Dict[str, pd.DataFrame], 
                                   result: TransformationResult) -> None:
-        """Generate consolidated TXT file.
+        """Generate consolidated TXT files according to Stage 5 specifications.
         
-        Args:
-            context: Transformation context
-            transformed_data: Transformed data by subtype
-            result: Result object to update
+        Creates separate TXT files for each DataFrame with specific delimiters:
+        - BASE_AT12: pipe (|) delimiter
+        - TDC_AT12, SOBREGIRO_AT12, VALORES_AT12: space ( ) delimiter
+        All files are headerless and saved to consolidated/ directory.
         """
         try:
-            # Generate consolidated filename using FilenameParser
-            consolidated_filename = self._filename_parser.generate_output_filename(
-                atom="AT12",
-                year=int(context.year),
-                month=int(context.month),
-                run_id=context.run_id,
-                extension="txt"
-            )
+            consolidated_files = []
             
-            consolidated_path = context.paths.get_consolidated_path(consolidated_filename)
-            
-            # Combine all transformed data for consolidated output
-            consolidated_records = []
+            # Define delimiter mapping according to Stage 5 specifications
+            delimiter_mapping = {
+                'AT12_BASE': '|',  # Pipe delimiter for BASE
+                'BASE_AT12': '|',  # Alternative naming
+                'AT12_TDC': ' ',   # Space delimiter for TDC
+                'TDC_AT12': ' ',   # Alternative naming
+                'AT12_SOBREGIRO': ' ',  # Space delimiter for SOBREGIRO
+                'SOBREGIRO_AT12': ' ',  # Alternative naming
+                'AT12_VALORES': ' ',    # Space delimiter for VALORES
+                'VALORES_AT12': ' '     # Alternative naming
+            }
             
             for subtype, df in transformed_data.items():
                 if not df.empty:
-                    # Convert DataFrame to consolidated format
-                    # This is a placeholder - actual format depends on AT12 specifications
-                    for _, row in df.iterrows():
-                        record = f"{subtype}|{context.period}|" + "|".join(str(row[col]) for col in df.columns)
-                        consolidated_records.append(record)
+                    # Get appropriate delimiter for this subtype
+                    delimiter = delimiter_mapping.get(subtype, '|')  # Default to pipe
+                    
+                    # Generate filename for this subtype
+                    subtype_filename = self._filename_parser.generate_output_filename(
+                        atom=subtype,
+                        year=int(context.year),
+                        month=int(context.month),
+                        run_id=context.run_id,
+                        extension="txt"
+                    )
+                    
+                    consolidated_path = context.paths.get_consolidated_path(subtype_filename)
+                    consolidated_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Write DataFrame to TXT file without header
+                    with open(consolidated_path, 'w', encoding='utf-8') as f:
+                        for _, row in df.iterrows():
+                            # Convert all values to string and join with delimiter
+                            record = delimiter.join(str(row[col]) for col in df.columns)
+                            f.write(record + '\n')
+                    
+                    consolidated_files.append(consolidated_path)
+                    self.logger.info(f"Generated {subtype} file: {consolidated_path} ({len(df)} records, delimiter='{delimiter}')")
             
-            # Write consolidated file
-            if consolidated_records:
-                consolidated_path.parent.mkdir(parents=True, exist_ok=True)
+            # Store all generated files in result
+            if consolidated_files:
+                if not hasattr(result, 'consolidated_files'):
+                    result.consolidated_files = []
+                result.consolidated_files.extend(consolidated_files)
                 
-                with open(consolidated_path, 'w', encoding='utf-8') as f:
-                    f.write("\n".join(consolidated_records))
+                # Keep backward compatibility with single file attribute
+                result.consolidated_file = consolidated_files[0] if consolidated_files else None
                 
-                result.consolidated_file = consolidated_path
-                self.logger.info(f"Generated consolidated file: {consolidated_path} ({len(consolidated_records)} records)")
+                self.logger.info(f"Generated {len(consolidated_files)} consolidated TXT files according to Stage 5 specifications")
             
         except Exception as e:
-            error_msg = f"Failed to generate consolidated file: {str(e)}"
+            error_msg = f"Failed to generate consolidated files: {str(e)}"
             result.errors.append(error_msg)
             self.logger.error(error_msg)
+    
+    # Stage 1 Correction Methods
+    def _apply_eeor_tabular_cleaning(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """1.1. EEOR TABULAR: Whitespace Errors - Remove unnecessary spaces from text fields."""
+        text_columns = df.select_dtypes(include=['object']).columns
+        incidences = []
+        # Track modified rows across any text column
+        try:
+            overall_mask = pd.Series(False, index=df.index)
+        except Exception:
+            overall_mask = None
+        
+        for col in text_columns:
+            if col in df.columns:
+                # Store original values for comparison
+                original_values = df[col].astype(str)
+                # Remove leading and trailing spaces, replace multiple spaces with single space
+                cleaned_values = original_values.str.strip().str.replace(r'\s+', ' ', regex=True)
+                
+                # Count modifications
+                modified_mask = original_values != cleaned_values
+                modified_count = modified_mask.sum()
+                
+                if modified_count > 0:
+                    # Apply the cleaning
+                    df[col] = cleaned_values
+                    if overall_mask is not None:
+                        overall_mask = overall_mask | modified_mask
+                    
+                    # Record incidences for modified records using standardized format
+                    for idx in df[modified_mask].index:
+                        self._add_incidence(
+                            incidence_type=IncidenceType.DATA_QUALITY,
+                            severity=IncidenceSeverity.LOW,
+                            rule_id='EEOR_TABULAR_WHITESPACE_CLEANING',
+                            description=f'Whitespace cleaned in column {col}',
+                            data={
+                                'record_index': int(idx),
+                                'column_name': col,
+                                'original_value': str(original_values.iloc[idx]),
+                                'corrected_value': str(cleaned_values.iloc[idx])
+                            }
+                        )
+                        
+                        # Also keep legacy format for backward compatibility
+                        incidences.append({
+                            'Index': idx,
+                            'Column': col,
+                            'Original_Value': original_values.iloc[idx],
+                            'Cleaned_Value': cleaned_values.iloc[idx],
+                            'Rule': 'EEOR_TABULAR_WHITESPACE_CLEANING'
+                        })
+        
+        if incidences:
+            self._store_incidences('EEOR_TABULAR', incidences, context)
+            self.logger.info(f"Applied EEOR TABULAR cleaning to {len(incidences)} records across {len(text_columns)} text columns")
+            # Export full-row subset for rows modified by EEOR cleaning
+            try:
+                if overall_mask is not None and overall_mask.any():
+                    self._export_error_subset(df, overall_mask, 'BASE_AT12', 'EEOR_TABULAR', context, None)
+            except Exception:
+                pass
+        
+        return df
+    
+    def _apply_error_0301_correction(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "", result: Optional[TransformationResult] = None) -> pd.DataFrame:
+        """1.2. Error 0301: Id_Documento Logic for Mortgage Guarantees (1-based indexing)."""
+        if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns:
+            return df
+
+        mask_0301 = df['Tipo_Garantia'] == '0301'
+        incidences = []
+
+        for idx in df[mask_0301].index:
+            id_documento = str(df.loc[idx, 'Id_Documento']) if pd.notna(df.loc[idx, 'Id_Documento']) else ''
+            original_id = id_documento
+
+            # Sub-Rule 1: positions 9-10 equal '01' or '41' or '42' → ensure length exactly 10
+            cond_len_ge_10 = len(id_documento) >= 10
+            pos_9_10 = id_documento[8:10] if cond_len_ge_10 else ''
+            if pos_9_10 in {'01', '41', '42'}:
+                if len(id_documento) > 10:
+                    # Extract the first 10 characters
+                    df.loc[idx, 'Id_Documento'] = id_documento[:10]
+                elif len(id_documento) < 10:
+                    # Flag manual review; do not modify value
+                    self._add_incidence(
+                        incidence_type=IncidenceType.VALIDATION_FAILURE,
+                        severity=IncidenceSeverity.HIGH,
+                        rule_id='Error_0301_Manual_Review_Required',
+                        description='Length < 10 for Sub-Rule 1 (positions 9-10 in {01,41,42})',
+                        data={
+                            'record_index': int(idx),
+                            'column_name': 'Id_Documento',
+                            'original_value': original_id
+                        }
+                    )
+                    incidences.append({
+                        'Index': idx,
+                        'Original_Id_Documento': original_id,
+                        'Rule': 'Error_0301_Manual_Review_Required',
+                        'Reason': 'Length < 10 for Sub-Rule 1'
+                    })
+
+            # Sub-Rule 2: Type 701 detection by position depending on length
+            elif len(id_documento) in (10, 11):
+                if len(id_documento) == 10:
+                    seq = id_documento[7:10]  # positions 8-10
+                else:
+                    seq = id_documento[8:11]  # positions 9-11
+
+                if seq == '701':
+                    # Valid; include 10-char case in follow-up report
+                    if len(id_documento) == 10:
+                        incidences.append({
+                            'Index': idx,
+                            'Id_Documento': id_documento,
+                            'Rule': 'Error_0301_Follow_Up_Report',
+                            'Reason': 'Length 10 with sequence 701 at positions 8-10'
+                        })
+                    # No modification required
+
+            # Sub-Rule 3: Length 15 handling and validation of positions 13-15
+            else:
+                if len(id_documento) > 15:
+                    # Truncate to first 15 and report
+                    df.loc[idx, 'Id_Documento'] = id_documento[:15]
+                    incidences.append({
+                        'Index': idx,
+                        'Original_Id_Documento': original_id,
+                        'Corrected_Id_Documento': id_documento[:15],
+                        'Rule': 'Error_0301_Truncate_To_15'
+                    })
+                elif 0 < len(id_documento) < 15:
+                    # Report deviation; do not modify
+                    incidences.append({
+                        'Index': idx,
+                        'Original_Id_Documento': original_id,
+                        'Rule': 'Error_0301_Length_Less_Than_15'
+                    })
+                elif len(id_documento) == 15:
+                    # Validate positions 13-15 (no modification regardless of match)
+                    pos_13_15 = id_documento[12:15]
+                    _ = pos_13_15 in {'100', '110', '120', '123', '810'}
+                    # No action required per spec; keep for possible future use
+
+            # Log changes (any modification)
+            if df.loc[idx, 'Id_Documento'] != original_id:
+                incidences.append({
+                    'Index': idx,
+                    'Original_Id_Documento': original_id,
+                    'Corrected_Id_Documento': df.loc[idx, 'Id_Documento'],
+                    'Rule': 'Error_0301_Correction'
+                })
+
+        if incidences:
+            self._store_incidences('ERROR_0301', incidences, context)
+            self.logger.info(f"Applied Error 0301 correction/incidences to {len(incidences)} records")
+
+        # Export a CSV with original columns for rows that had the 0301 condition
+        try:
+            if mask_0301.any():
+                self._export_error_subset(df, mask_0301, subtype or 'BASE_AT12', 'ERROR_0301', context, result)
+        except Exception:
+            pass
+
+        return df
+    
+    def _apply_coma_finca_empresa_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """1.3. COMA EN FINCA EMPRESA: Remove commas from Id_Documento."""
+        if 'Id_Documento' not in df.columns:
+            return df
+        
+        # Find records with commas in Id_Documento
+        mask_comma = df['Id_Documento'].astype(str).str.contains(',', na=False)
+        incidences = []
+        
+        if mask_comma.sum() > 0:
+            # Store original values for incidence reporting
+            for idx in df[mask_comma].index:
+                original_id = df.loc[idx, 'Id_Documento']
+                corrected_id = str(original_id).replace(',', '')
+                df.loc[idx, 'Id_Documento'] = corrected_id
+                
+                incidences.append({
+                    'Index': idx,
+                    'Original_Id_Documento': original_id,
+                    'Corrected_Id_Documento': corrected_id,
+                    'Rule': 'COMA_EN_FINCA_EMPRESA'
+                })
+            
+            self._store_incidences('COMA_FINCA_EMPRESA', incidences, context)
+            self.logger.info(f"Removed commas from {len(incidences)} Id_Documento records")
+            # Export subset of rows with this issue keeping original columns
+            try:
+                self._export_error_subset(df, mask_comma, 'BASE_AT12', 'COMA_EN_FINCA_EMPRESA', context, None)
+            except Exception:
+                pass
+        
+        return df
+    
+    def _apply_fecha_cancelacion_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """1.4. Fecha Cancelación Errada: Correct erroneous expiration dates."""
+        if 'Fecha_Vencimiento' not in df.columns:
+            return df
+        
+        incidences = []
+        
+        # Convert to string and extract year
+        fecha_str = df['Fecha_Vencimiento'].astype(str)
+        
+        # Find records with invalid years (> 2100 or < 1985)
+        for idx in df.index:
+            fecha_val = str(df.loc[idx, 'Fecha_Vencimiento'])
+            if len(fecha_val) >= 4:
+                try:
+                    year = int(fecha_val[:4])
+                    if year > 2100 or year < 1985:
+                        original_fecha = df.loc[idx, 'Fecha_Vencimiento']
+                        df.loc[idx, 'Fecha_Vencimiento'] = '21001231'
+                        
+                        incidences.append({
+                            'Index': idx,
+                            'Original_Fecha_Vencimiento': original_fecha,
+                            'Corrected_Fecha_Vencimiento': '21001231',
+                            'Rule': 'FECHA_CANCELACION_ERRADA'
+                        })
+                except ValueError:
+                    # Invalid date format, also correct
+                    original_fecha = df.loc[idx, 'Fecha_Vencimiento']
+                    df.loc[idx, 'Fecha_Vencimiento'] = '21001231'
+                    
+                    incidences.append({
+                        'Index': idx,
+                        'Original_Fecha_Vencimiento': original_fecha,
+                        'Corrected_Fecha_Vencimiento': '21001231',
+                        'Rule': 'FECHA_CANCELACION_ERRADA_FORMAT'
+                    })
+        
+        if incidences:
+            self._store_incidences('FECHA_CANCELACION_ERRADA', incidences, context)
+            self.logger.info(f"Corrected {len(incidences)} erroneous Fecha_Vencimiento records")
+            # Export subset rows that had this error
+            try:
+                idxs = [rec.get('Index') for rec in incidences if 'Index' in rec]
+                if idxs:
+                    mask = df.index.isin(idxs)
+                    self._export_error_subset(df, mask, 'BASE_AT12', 'FECHA_CANCELACION_ERRADA', context, None)
+            except Exception:
+                pass
+        
+        return df
+    
+    def _apply_fecha_avaluo_correction(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """1.5. Fecha Avalúo Errada: Correct inconsistent appraisal update dates."""
+        if 'Fecha_Ultima_Actualizacion' not in df.columns or 'Numero_Prestamo' not in df.columns:
+            return df
+        
+        if 'AT03_CREDITOS' not in source_data or source_data['AT03_CREDITOS'].empty:
+            self.logger.warning("AT03_CREDITOS data not available for fecha avalúo correction")
+            return df
+        
+        at03_df = source_data['AT03_CREDITOS']
+        incidences = []
+        
+        # Get last day of previous month for comparison
+        from datetime import datetime, timedelta
+        import calendar
+        
+        try:
+            # Assuming context has year and month
+            current_year = int(context.year)
+            current_month = int(context.month)
+            
+            if current_month == 1:
+                prev_month = 12
+                prev_year = current_year - 1
+            else:
+                prev_month = current_month - 1
+                prev_year = current_year
+            
+            last_day_prev_month = calendar.monthrange(prev_year, prev_month)[1]
+            cutoff_date = f"{prev_year}{prev_month:02d}{last_day_prev_month:02d}"
+            
+        except (AttributeError, ValueError):
+            # Fallback if context doesn't have proper date info
+            cutoff_date = "20231231"  # Default cutoff
+        
+        for idx in df.index:
+            fecha_val = str(df.loc[idx, 'Fecha_Ultima_Actualizacion'])
+            numero_prestamo = df.loc[idx, 'Numero_Prestamo']
+            needs_correction = False
+            reason = ""
+            
+            # Check conditions for correction
+            if len(fecha_val) == 8 and fecha_val.isdigit():
+                if fecha_val > cutoff_date:
+                    needs_correction = True
+                    reason = "Date > last day of previous month"
+                elif fecha_val[:4].isdigit() and int(fecha_val[:4]) < 1985:
+                    needs_correction = True
+                    reason = "Year < 1985"
+            else:
+                needs_correction = True
+                reason = "Invalid YYYYMMDD format"
+            
+            if needs_correction:
+                # JOIN with AT03_CREDITOS to get fec_ini_prestamo
+                at03_match = at03_df[at03_df['num_cta'] == numero_prestamo]
+                if not at03_match.empty and 'fec_ini_prestamo' in at03_match.columns:
+                    original_fecha = df.loc[idx, 'Fecha_Ultima_Actualizacion']
+                    new_fecha = at03_match.iloc[0]['fec_ini_prestamo']
+                    df.loc[idx, 'Fecha_Ultima_Actualizacion'] = new_fecha
+                    
+                    incidences.append({
+                        'Index': idx,
+                        'Numero_Prestamo': numero_prestamo,
+                        'Original_Fecha_Ultima_Actualizacion': original_fecha,
+                        'Corrected_Fecha_Ultima_Actualizacion': new_fecha,
+                        'Reason': reason,
+                        'Rule': 'FECHA_AVALUO_ERRADA'
+                    })
+        
+        if incidences:
+            self._store_incidences('FECHA_AVALUO_ERRADA', incidences, context)
+            self.logger.info(f"Corrected {len(incidences)} Fecha_Ultima_Actualizacion records")
+            # Export subset rows that had this issue
+            try:
+                idxs = [rec.get('Index') for rec in incidences if 'Index' in rec]
+                if idxs:
+                    mask_export = df.index.isin(idxs)
+                    self._export_error_subset(df, mask_export, 'BASE_AT12', 'FECHA_AVALUO_ERRADA', context, None)
+            except Exception:
+                pass
+        
+        return df
+    
+    def _apply_inmuebles_sin_poliza_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """1.6. Inmuebles sin Póliza: Correct missing policy numbers for real estate."""
+        if 'Tipo_Garantia' not in df.columns or 'Numero_Poliza' not in df.columns:
+            return df
+        
+        # Find real estate guarantees without policy number
+        mask_inmueble = df['Tipo_Garantia'].isin(['INMUEBLE', 'INMUEBLES'])
+        mask_sin_poliza = (df['Numero_Poliza'].isna()) | (df['Numero_Poliza'].astype(str).str.strip() == '')
+        mask_correction = mask_inmueble & mask_sin_poliza
+        
+        incidences = []
+        
+        if mask_correction.sum() > 0:
+            for idx in df[mask_correction].index:
+                original_poliza = df.loc[idx, 'Numero_Poliza']
+                df.loc[idx, 'Numero_Poliza'] = '0'
+                
+                incidences.append({
+                    'Index': idx,
+                    'Tipo_Garantia': df.loc[idx, 'Tipo_Garantia'],
+                    'Original_Numero_Poliza': original_poliza,
+                    'Corrected_Numero_Poliza': '0',
+                    'Rule': 'INMUEBLES_SIN_POLIZA'
+                })
+            
+            self._store_incidences('INMUEBLES_SIN_POLIZA', incidences, context)
+            self.logger.info(f"Corrected {len(incidences)} real estate records without policy number")
+            # Export subset rows
+            try:
+                self._export_error_subset(df, mask_correction, 'BASE_AT12', 'INMUEBLES_SIN_POLIZA', context, None)
+            except Exception:
+                pass
+        
+        return df
+    
+    def _apply_inmuebles_sin_finca_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """1.7. Inmuebles sin Finca: Correct missing property registration for real estate."""
+        if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns:
+            return df
+        
+        # Find real estate guarantees without property ID
+        mask_inmueble = df['Tipo_Garantia'].isin(['INMUEBLE', 'INMUEBLES'])
+        mask_sin_finca = (df['Id_Documento'].isna()) | (df['Id_Documento'].astype(str).str.strip() == '')
+        mask_correction = mask_inmueble & mask_sin_finca
+        
+        incidences = []
+        
+        if mask_correction.sum() > 0:
+            for idx in df[mask_correction].index:
+                original_id = df.loc[idx, 'Id_Documento']
+                df.loc[idx, 'Id_Documento'] = '0'
+                
+                incidences.append({
+                    'Index': idx,
+                    'Tipo_Garantia': df.loc[idx, 'Tipo_Garantia'],
+                    'Original_Id_Documento': original_id,
+                    'Corrected_Id_Documento': '0',
+                    'Rule': 'INMUEBLES_SIN_FINCA'
+                })
+            
+            self._store_incidences('INMUEBLES_SIN_FINCA', incidences, context)
+            self.logger.info(f"Corrected {len(incidences)} real estate records without property ID")
+            try:
+                self._export_error_subset(df, mask_correction, 'BASE_AT12', 'INMUEBLES_SIN_FINCA', context, None)
+            except Exception:
+                pass
+        
+        return df
+    
+    def _apply_poliza_auto_comercial_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """1.8. Póliza Auto Comercial: Correct commercial auto policy types."""
+        if 'Tipo_Poliza' not in df.columns or 'Codigo_Ramo' not in df.columns:
+            return df
+        
+        # Find commercial auto policies that need correction
+        mask_auto_comercial = (df['Tipo_Poliza'].astype(str).str.upper() == 'AUTO COMERCIAL')
+        incidences = []
+        
+        if mask_auto_comercial.sum() > 0:
+            for idx in df[mask_auto_comercial].index:
+                original_tipo = df.loc[idx, 'Tipo_Poliza']
+                original_codigo = df.loc[idx, 'Codigo_Ramo']
+                
+                df.loc[idx, 'Tipo_Poliza'] = 'Auto'
+                df.loc[idx, 'Codigo_Ramo'] = '3'
+                
+                incidences.append({
+                    'Index': idx,
+                    'Original_Tipo_Poliza': original_tipo,
+                    'Corrected_Tipo_Poliza': 'Auto',
+                    'Original_Codigo_Ramo': original_codigo,
+                    'Corrected_Codigo_Ramo': '3',
+                    'Rule': 'POLIZA_AUTO_COMERCIAL'
+                })
+            
+            self._store_incidences('POLIZA_AUTO_COMERCIAL', incidences, context)
+            self.logger.info(f"Corrected {len(incidences)} commercial auto policy records")
+            try:
+                self._export_error_subset(df, mask_auto_comercial, 'BASE_AT12', 'POLIZA_AUTO_COMERCIAL', context, None)
+            except Exception:
+                pass
+        
+        return df
+    
+    def _apply_error_poliza_auto_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """1.9. Error Póliza Auto: Correct auto policy codes."""
+        if 'Tipo_Poliza' not in df.columns or 'Codigo_Ramo' not in df.columns:
+            return df
+        
+        # Find auto policies with incorrect codes
+        mask_auto = (df['Tipo_Poliza'].astype(str).str.upper() == 'AUTO')
+        mask_wrong_code = ~(df['Codigo_Ramo'].astype(str).isin(['3', '4']))
+        mask_correction = mask_auto & mask_wrong_code
+        
+        incidences = []
+        
+        if mask_correction.sum() > 0:
+            for idx in df[mask_correction].index:
+                original_codigo = df.loc[idx, 'Codigo_Ramo']
+                df.loc[idx, 'Codigo_Ramo'] = '3'  # Default to code 3
+                
+                incidences.append({
+                    'Index': idx,
+                    'Tipo_Poliza': df.loc[idx, 'Tipo_Poliza'],
+                    'Original_Codigo_Ramo': original_codigo,
+                    'Corrected_Codigo_Ramo': '3',
+                    'Rule': 'ERROR_POLIZA_AUTO'
+                })
+            
+            self._store_incidences('ERROR_POLIZA_AUTO', incidences, context)
+            self.logger.info(f"Corrected {len(incidences)} auto policy code records")
+            try:
+                self._export_error_subset(df, mask_correction, 'BASE_AT12', 'ERROR_POLIZA_AUTO', context, None)
+            except Exception:
+                pass
+        
+        return df
+    
+    def _apply_inmueble_sin_avaluadora_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """1.10. Inmueble sin Avaluadora: Correct real estate without appraisal company."""
+        if 'Tipo_Poliza' not in df.columns or 'Codigo_Ramo' not in df.columns:
+            return df
+        
+        # Find real estate policies without appraisal company
+        mask_inmueble_sin_avaluadora = (df['Tipo_Poliza'].astype(str).str.upper() == 'INMUEBLE SIN AVALUADORA')
+        incidences = []
+        
+        if mask_inmueble_sin_avaluadora.sum() > 0:
+            for idx in df[mask_inmueble_sin_avaluadora].index:
+                original_tipo = df.loc[idx, 'Tipo_Poliza']
+                original_codigo = df.loc[idx, 'Codigo_Ramo']
+                
+                df.loc[idx, 'Tipo_Poliza'] = 'Inmueble'
+                df.loc[idx, 'Codigo_Ramo'] = '5'
+                
+                incidences.append({
+                    'Index': idx,
+                    'Original_Tipo_Poliza': original_tipo,
+                    'Corrected_Tipo_Poliza': 'Inmueble',
+                    'Original_Codigo_Ramo': original_codigo,
+                    'Corrected_Codigo_Ramo': '5',
+                    'Rule': 'INMUEBLE_SIN_AVALUADORA'
+                })
+            
+            self._store_incidences('INMUEBLE_SIN_AVALUADORA', incidences, context)
+            self.logger.info(f"Corrected {len(incidences)} real estate without appraisal company records")
+            try:
+                self._export_error_subset(df, mask_inmueble_sin_avaluadora, 'BASE_AT12', 'INMUEBLE_SIN_AVALUADORA', context, None)
+            except Exception:
+                pass
+        
+        return df
