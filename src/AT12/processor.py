@@ -361,11 +361,11 @@ class AT12Processor:
                     
                     # Validate headers if schema available
                     expected_headers: Optional[List[str]] = None
-                    # Support tests' schema format with global 'required_headers'
-                    if isinstance(self.schema_headers, dict) and 'required_headers' in self.schema_headers:
-                        expected_headers = self.schema_headers['required_headers']
-                    elif parsed.subtype in self.schema_headers:
+                    # Prefer subtype-specific schema; fallback to global 'required_headers' (test format)
+                    if isinstance(self.schema_headers, dict) and parsed.subtype in self.schema_headers:
                         expected_headers = list(self.schema_headers[parsed.subtype].keys())
+                    elif isinstance(self.schema_headers, dict) and 'required_headers' in self.schema_headers:
+                        expected_headers = self.schema_headers['required_headers']
                     
                     if expected_headers is not None:
                         actual_headers = list(df_sample.columns)

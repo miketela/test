@@ -278,7 +278,7 @@ def action_explore(selected: List[Path]):
     print(f"Using temporary SOURCE_DIR: {tmp_dir}")
     rc = run_cmd([sys.executable, str(PROJECT_ROOT / "main.py"),
                   "explore", "--atoms", "AT12", "--year", str(year), "--month", str(month)],
-                 env_overrides={"SOURCE_DIR": str(tmp_dir)})
+                 env_overrides={"SBP_SOURCE_DIR": str(tmp_dir)})
     if rc == 0:
         print("Explore completed.")
     elif rc == 2:
@@ -311,7 +311,7 @@ def action_transform():
     print(f"Using temporary RAW_DIR: {tmp_raw}")
     rc = run_cmd([sys.executable, str(PROJECT_ROOT / "main.py"),
                   "transform", "--atoms", "AT12", "--year", str(year), "--month", str(month)],
-                 env_overrides={"RAW_DIR": str(tmp_raw)})
+                 env_overrides={"SBP_DATA_RAW_DIR": str(tmp_raw)})
     if rc == 0:
         print("Transform completed.")
     elif rc == 2:

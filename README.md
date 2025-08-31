@@ -103,7 +103,7 @@ sbp-atoms/
 
 ## Usage
 
-The main script `main.py` provides three commands: `explore`, `transform`, and `report`.
+The main script `main.py` provides four commands: `explore`, `transform`, `report`, and `tui` (interactive UI).
 
 ### Exploration Phase
 
@@ -150,6 +150,27 @@ python main.py report --metrics-file metrics/exploration_metrics_AT12_202401__ru
 - `--output`: (Optional) Path for the output PDF file.
 - `--title`: (Optional) A custom title for the report.
 - `--raw-data-dir`: (Optional) Path to the raw data directory for additional analysis.
+
+### Interactive UI (TUI)
+
+Run the interactive terminal UI to explore, transform, and report with guided prompts, multi‑select, and search:
+
+```bash
+# Optional: ensure InquirerPy is installed for checkboxes/selects
+pip install InquirerPy
+
+# Launch the UI
+python main.py tui
+```
+
+Features:
+- Explore: selecciona subtipos y archivos de `source/`, elige año/mes y ejecuta explore (usa una carpeta temporal como SOURCE_DIR).
+- Transform: selecciona subtipos y archivos de `data/raw` para un run y ejecuta transform (usa una carpeta temporal como RAW_DIR).
+- Report: elige un JSON en `metrics/` y genera un PDF en `reports/`.
+- XLSX: puedes indicar la hoja (nombre o índice 0‑based) para el conteo en resúmenes.
+
+Notas:
+- Si InquirerPy no está instalado, la UI hace fallback a prompts básicos; con InquirerPy verás checkboxes y selects interactivos.
 
 #### Detailed Report Usage Guide
 
@@ -258,6 +279,19 @@ The system uses environment variables and configuration files:
 - ✅ AT12 exploration phase (complete workflow)
 - ✅ File discovery and validation
 - ✅ Metrics calculation and reporting
+
+## AT12 Transformation Highlights (TDC updates)
+
+- TDC Número_Garantía:
+  - Limpia la columna y ordena por `Id_Documento` en orden descendente.
+  - Clave: `Id_Documento + Tipo_Facilidad` (se excluye `Numero_Prestamo`).
+  - Asigna números secuenciales desde 855,500 y reutiliza para claves repetidas.
+- Mapeo de fechas (TDC ↔ AT02_CUENTAS):
+  - Join por `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02).
+  - `Fecha_Última_Actualización` ← `Fecha_inicio` (AT02) y `Fecha_Vencimiento` ← `Fecha_Vencimiento` (AT02).
+- Inconsistencia `Tarjeta_repetida` (solo CSV):
+  - Detecta duplicados excluyendo `Numero_Prestamo` con prioridad de clave: (1) `Identificacion_cliente`,`Identificacion_Cuenta`,`Tipo_Facilidad`; si no, (2) `Id_Documento`,`Tipo_Facilidad`.
+  - Exporta `data/processed/transforms/AT12/incidencias/INC_TARJETA_REPETIDA_TDC_AT12_<PERIODO>.csv` con filas completas.
 - ✅ PDF report generation with detailed statistics
 - ✅ Comprehensive logging and audit trails
 - ✅ Dual format support (CSV + XLSX)
