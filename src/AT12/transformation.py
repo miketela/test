@@ -1551,6 +1551,9 @@ class AT12TransformationEngine(TransformationEngine):
         
         at03_df = source_data['AT03_CREDITOS']
         incidences = []
+        candidates = 0
+        corrected = 0
+        no_match = 0
         
         # Get last day of previous month for comparison
         from datetime import datetime, timedelta
@@ -1599,6 +1602,7 @@ class AT12TransformationEngine(TransformationEngine):
                 reason = "Invalid YYYYMMDD format"
             
             if needs_correction:
+                candidates += 1
                 # JOIN with AT03_CREDITOS to get fec_ini_prestamo
                 at03_match = at03_df[at03_df['num_cta'] == numero_prestamo]
                 if not at03_match.empty and 'fec_ini_prestamo' in at03_match.columns:
@@ -1616,10 +1620,13 @@ class AT12TransformationEngine(TransformationEngine):
                         'Reason': reason,
                         'Rule': 'FECHA_AVALUO_ERRADA'
                     })
+                    corrected += 1
+                else:
+                    no_match += 1
         
         if incidences:
             self._store_incidences('FECHA_AVALUO_ERRADA', incidences, context)
-            self.logger.info(f"Corrected {len(incidences)} Fecha_Ultima_Actualizacion records")
+            self.logger.info(f"Corrected {len(incidences)} Fecha_Ultima_Actualizacion records (candidates={candidates}, corrected={corrected}, no_match={no_match})")
             # Export subset rows that had this issue
             try:
                 idxs = [rec.get('Index') for rec in incidences if 'Index' in rec]
