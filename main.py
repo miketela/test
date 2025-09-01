@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from src.core.config import Config
-from src.core.log import get_logger, setup_logging
+from src.core.log import get_logger, setup_logging, add_file_logging
 from src.core.time_utils import resolve_period
 from src.core.reports import create_exploration_report
 import importlib.util as _importlib_util
@@ -76,7 +76,7 @@ def main():
     config = Config()
     config.update_from_args(args)
     
-    # Setup logging
+    # Setup console logging early
     verbose = getattr(args, 'verbose', False)
     setup_logging(level=config.log_level, verbose=verbose)
     logger = get_logger(__name__)
@@ -109,6 +109,13 @@ def main():
             # Generate report
             raw_data_dir = Path(args.raw_data_dir) if args.raw_data_dir else Path(config.data_raw_dir)
             
+            # Add file logging for this run (try to extract run_id from metrics filename)
+            import re as _re
+            m = _re.search(r"__run-(\d{6})", metrics_file.stem)
+            run_id_for_log = m.group(1) if m else datetime.now().strftime('%Y%m')
+            log_file = Path(config.logs_dir) / "AT12" / "report" / f"report_{run_id_for_log}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+            add_file_logging(log_file, level=config.log_level)
+
             logger.info(f"Generating PDF report from {metrics_file}")
             success = create_exploration_report(
                 metrics_file=metrics_file,
@@ -136,8 +143,15 @@ def main():
                 processor = AT12Processor(config.to_dict())
                 
                 if args.command == "explore":
+                    # Add run-based file logger
+                    run_id = f"{period[0]}{period[1]:02d}"
+                    log_file = Path(config.logs_dir) / atom / "explore" / f"{atom}_explore_{run_id}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+                    add_file_logging(log_file, level=config.log_level)
                     result = processor.explore(period[0], period[1], f"{period[0]}{period[1]:02d}")
                 elif args.command == "transform":
+                    run_id = f"{period[0]}{period[1]:02d}"
+                    log_file = Path(config.logs_dir) / atom / "transform" / f"{atom}_transform_{run_id}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+                    add_file_logging(log_file, level=config.log_level)
                     result = processor.transform(period[0], period[1], f"{period[0]}{period[1]:02d}")
                 
                 # Update exit code based on result

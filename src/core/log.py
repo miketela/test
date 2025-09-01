@@ -108,6 +108,29 @@ def setup_logging(level: str = "INFO", verbose: bool = False):
     root_logger.addHandler(console_handler)
 
 
+def add_file_logging(file_path: Path, level: str = "INFO") -> logging.Handler:
+    """Attach a file handler to the root logger writing to file_path.
+
+    Args:
+        file_path: Destination log file path
+        level: Log level name (e.g., 'INFO', 'DEBUG')
+
+    Returns:
+        The created handler (so callers can manage it if needed)
+    """
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    handler = logging.FileHandler(str(file_path), encoding="utf-8")
+    handler.setLevel(log_level)
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    handler.setFormatter(formatter)
+    logging.getLogger().addHandler(handler)
+    return handler
+
+
 def get_logger(name: str) -> logging.Logger:
     """Get a logger instance."""
     return logging.getLogger(name)
