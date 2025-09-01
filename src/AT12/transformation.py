@@ -380,7 +380,7 @@ class AT12TransformationEngine(TransformationEngine):
           2) ('Id_Documento','Tipo_Facilidad')
 
         Records sharing the same key are considered 'Tarjeta_repetida'.
-        Export full-row subset to INC_TARJETA_REPETIDA_TDC_AT12_<PERIODO>.csv and record incidences.
+        Export full-row subset to TARJETA_REPETIDA_<PERIODO>.csv and record incidences.
         """
         # Choose key according to available columns
         if all(c in df.columns for c in ['Identificacion_cliente', 'Identificacion_Cuenta', 'Tipo_Facilidad']):
