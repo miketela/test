@@ -18,7 +18,7 @@ A single, auditable ETL pipeline for AT12: cleaning → enrichment → business 
   - Process: if length > 15, truncate to first 15 and report; if length < 15, report (no modification); if length = 15, validate positions 13–15 ∈ {'100','110','120','123','810'} (no modification).
 3. COMA EN FINCA EMPRESA — Remove commas in `Id_Documento`.
 4. Fecha Cancelación Errada — If `Fecha_Vencimiento` year > 2100 or < 1985 or invalid format, set `21001231`.
-5. Fecha Avalúo Errada — Applies only to BASE_AT12 in Stage 1. Flag and correct only when out of bounds (year < 1985, > last day of previous month, or invalid format). Join with `AT03_CREDITOS` by `Numero_Prestamo` ↔ `num_cta` using normalized keys (digits-only, strip leading zeros) for join only. Export only corrected rows; include `Fecha_Ultima_Actualizacion_ORIGINAL`.
+5. Fecha Avalúo Errada — Applies only to BASE_AT12 in Stage 1. Flag and correct only when out of bounds (year < 1985, > last day of the processing month, or invalid format). Join with `AT03_CREDITOS` by `Numero_Prestamo` ↔ `num_cta` using normalized keys (digits-only, strip leading zeros) for join only. Export only corrected rows; include `Fecha_Ultima_Actualizacion_ORIGINAL`.
 6–10. Additional fixes — Missing policy/registry, policy normalizations.
 
 ## Stage 2: Enrichment and Atom Generation

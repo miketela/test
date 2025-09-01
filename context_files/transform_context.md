@@ -123,7 +123,7 @@ Output: Id_Documento is either unchanged or truncated to 15 characters. All devi
 **1.5. Fecha Avalúo Errada (Incorrect Appraisal Date)**
 *   **Objective:** To standardize inconsistent or improperly formatted appraisal update dates by replacing them with the loan's original start date.
 *   **Input Identification:** Records in `BASE_AT12` meeting ANY of these conditions:
-    *   `Fecha_Ultima_Actualizacion` > (the last day of the month prior to the processing date).
+    *   `Fecha_Ultima_Actualizacion` > (the last day of the processing month).
     *   The year of `Fecha_Ultima_Actualizacion` < 1985.
     *   `Fecha_Ultima_Actualizacion` does not follow the `YYYYMMDD` format (e.g., `'2011201'`).
 *   **Detailed Process (Logic):**

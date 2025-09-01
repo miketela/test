@@ -1583,20 +1583,13 @@ class AT12TransformationEngine(TransformationEngine):
             # Assuming context has year and month
             current_year = int(context.year)
             current_month = int(context.month)
-            
-            if current_month == 1:
-                prev_month = 12
-                prev_year = current_year - 1
-            else:
-                prev_month = current_month - 1
-                prev_year = current_year
-            
-            last_day_prev_month = calendar.monthrange(prev_year, prev_month)[1]
-            cutoff_date = f"{prev_year}{prev_month:02d}{last_day_prev_month:02d}"
+            # Cutoff is the last day of the processing month (not previous month)
+            last_day_curr_month = calendar.monthrange(current_year, current_month)[1]
+            cutoff_date = f"{current_year}{current_month:02d}{last_day_curr_month:02d}"
             
         except (AttributeError, ValueError):
             # Fallback if context doesn't have proper date info
-            cutoff_date = "20231231"  # Default cutoff
+            cutoff_date = "20991231"  # Lenient default cutoff at far-future end of year
         
         try:
             orig_series_avaluo = pd.Series(index=df.index, dtype=object)
