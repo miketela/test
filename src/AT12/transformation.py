@@ -1713,6 +1713,11 @@ class AT12TransformationEngine(TransformationEngine):
                     'Corrected_Tipo_Poliza': '01',
                     'Rule': 'INMUEBLES_SIN_TIPO_POLIZA_0208_CONST'
                 })
+            try:
+                total_cand_0208 = int(((df['Tipo_Garantia'].astype(str) == '0208') & is_empty_tipo_poliza).sum())
+                self.logger.info(f"INMUEBLES_SIN_TIPO_POLIZA: 0208 candidates={total_cand_0208}, assigned={int(mask_0208.sum())}")
+            except Exception:
+                pass
 
         # Caso 0207: JOIN con POLIZA_HIPOTECAS_AT12 si disponible
         mask_0207 = (df['Tipo_Garantia'].astype(str) == '0207') & is_empty_tipo_poliza
@@ -1728,6 +1733,9 @@ class AT12TransformationEngine(TransformationEngine):
                     hip_df['_norm_key'] = self._normalize_join_key(hip_df['numcred'])
                     map_seguro = hip_df.set_index('_norm_key')['seguro_incendio']
                     base_norm = self._normalize_join_key(df['Numero_Prestamo'])
+                    _assigned_0207 = 0
+                    _no_match_0207 = 0
+                    _invalid_0207 = 0
                     for idx in df[mask_0207].index:
                         key = base_norm.loc[idx]
                         if pd.isna(key):
@@ -1749,6 +1757,18 @@ class AT12TransformationEngine(TransformationEngine):
                                     'Corrected_Tipo_Poliza': normalized,
                                     'Rule': 'INMUEBLES_SIN_TIPO_POLIZA_0207_JOIN_HIPOTECAS'
                                 })
+                                _assigned_0207 += 1
+                            else:
+                                _invalid_0207 += 1
+                        else:
+                            _no_match_0207 += 1
+                    try:
+                        total_cand_0207 = int(mask_0207.sum())
+                        self.logger.info(
+                            f"INMUEBLES_SIN_TIPO_POLIZA: 0207 candidates={total_cand_0207}, assigned={_assigned_0207}, no_match={_no_match_0207}, invalid_seguro={_invalid_0207}"
+                        )
+                    except Exception:
+                        pass
 
         if incidences:
             self._store_incidences('INMUEBLES_SIN_TIPO_POLIZA', incidences, context)
