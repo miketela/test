@@ -13,10 +13,26 @@ from src.core.config import Config
 from src.core.log import get_logger, setup_logging
 from src.core.time_utils import resolve_period
 from src.core.reports import create_exploration_report
-try:
-    from scripts.tui import main as tui_main
-except Exception:
-    tui_main = None
+import importlib.util as _importlib_util
+from importlib import import_module as _import_module
+from pathlib import Path as _Path
+
+def _load_tui_main():
+    """Try to load TUI main() via normal import, then via file path fallback."""
+    try:
+        return _import_module('scripts.tui').main  # type: ignore[attr-defined]
+    except Exception:
+        try:
+            tui_path = _Path(__file__).resolve().parent / 'scripts' / 'tui.py'
+            if tui_path.exists():
+                spec = _importlib_util.spec_from_file_location('scripts.tui', str(tui_path))
+                if spec and spec.loader:
+                    mod = _importlib_util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+                    return getattr(mod, 'main', None)
+        except Exception:
+            return None
+    return None
 from src.AT12.processor import AT12Processor
 
 
@@ -67,6 +83,7 @@ def main():
     
     try:
         if args.command == "tui":
+            tui_main = _load_tui_main()
             if tui_main is None:
                 print("TUI is unavailable (import failed)")
                 return 1

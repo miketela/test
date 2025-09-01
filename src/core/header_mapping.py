@@ -148,10 +148,37 @@ class HeaderMapper:
         if isinstance(mapping, dict) and mapping:
             # For dict mappings (e.g., TDC_AT12), map by normalized key → expected (accented) header
             mapped: List[str] = []
-            for h in headers:
-                key = HeaderMapper._norm_key(h)
-                mapped.append(mapping.get(key, HeaderNormalizer.normalize_headers([h])[0]))
-            return mapped
+            if subtype == 'TDC_AT12':
+                # Fuzzy fallback for mis-encoded headers (e.g., 'C�digo_Banco')
+                from difflib import SequenceMatcher
+                def simple_key(s: str) -> str:
+                    return HeaderMapper._norm_key(s).replace('_', '')
+                keys = list(mapping.keys())
+                keys_simple = [k.replace('_', '') for k in keys]
+                for h in headers:
+                    key = HeaderMapper._norm_key(h)
+                    if key in mapping:
+                        mapped.append(mapping[key])
+                        continue
+                    skey = key.replace('_', '')
+                    # find best candidate by similarity
+                    best_idx = -1
+                    best_score = 0.0
+                    for i, ksimple in enumerate(keys_simple):
+                        score = SequenceMatcher(None, skey, ksimple).ratio()
+                        if score > best_score:
+                            best_score = score
+                            best_idx = i
+                    if best_idx >= 0 and best_score >= 0.75:
+                        mapped.append(mapping[keys[best_idx]])
+                    else:
+                        mapped.append(HeaderNormalizer.normalize_headers([h])[0])
+                return mapped
+            else:
+                for h in headers:
+                    key = HeaderMapper._norm_key(h)
+                    mapped.append(mapping.get(key, HeaderNormalizer.normalize_headers([h])[0]))
+                return mapped
         
         # Fallback: normalized headers (no accents), uppercase for stability
         return [HeaderNormalizer.normalize_headers([header])[0].upper() for header in headers]

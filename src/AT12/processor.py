@@ -403,6 +403,15 @@ class AT12Processor:
                                 normalized_actual, normalized_expected, order_strict=False
                             )
                         
+                        # For TDC, treat some headers as optional and allow fuzzy mapping
+                        if parsed.subtype == 'TDC_AT12' and not validation_result['is_valid']:
+                            optional_headers = {'num_garantía'}
+                            # Remove optional from missing list
+                            missing = set(validation_result.get('missing_headers', [])) - optional_headers
+                            validation_result['missing_headers'] = list(missing)
+                            if not missing:
+                                validation_result['is_valid'] = True
+
                         if not validation_result['is_valid']:
                             self.logger.error(f"✗ {filename} failed header validation:")
                             for error in validation_result['errors']:
