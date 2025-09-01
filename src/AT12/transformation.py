@@ -129,8 +129,13 @@ class AT12TransformationEngine(TransformationEngine):
         return s.map(lambda x: ('' if pd.isna(x) else f"{float(x):.2f}".replace('.', ',')))
 
     def _export_error_subset(self, df: pd.DataFrame, mask: pd.Series, subtype: str, rule_name: str,
-                              context: TransformationContext, result: Optional[TransformationResult]) -> None:
-        """Export a CSV containing only rows that match the error mask, preserving all original columns."""
+                              context: TransformationContext, result: Optional[TransformationResult],
+                              original_columns: Optional[Dict[str, pd.Series]] = None) -> None:
+        """Export a CSV containing only rows that match the error mask, preserving all columns.
+
+        If `original_columns` is provided (mapping: column_name -> original_series aligned to df index),
+        insert side-by-side `<column_name>_ORIGINAL` columns with the pre-correction values.
+        """
         try:
             out_df = df.loc[mask].copy()
             if out_df.empty:
@@ -139,6 +144,25 @@ class AT12TransformationEngine(TransformationEngine):
             filename = f"{rule_name}_{context.period}.csv"
             out_path = context.paths.incidencias_dir / filename
             out_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Insert original columns next to corrected ones if provided
+            if original_columns:
+                cols = list(out_df.columns)
+                new_order = []
+                for col in cols:
+                    new_order.append(col)
+                    if col in original_columns:
+                        orig_col = f"{col}_ORIGINAL"
+                        try:
+                            out_df[orig_col] = original_columns[col].reindex(out_df.index)
+                        except Exception:
+                            out_df[orig_col] = original_columns[col]
+                        new_order.append(orig_col)
+                try:
+                    out_df = out_df[new_order]
+                except Exception:
+                    pass
+
             out_df.to_csv(
                 out_path,
                 index=False,
@@ -528,6 +552,10 @@ class AT12TransformationEngine(TransformationEngine):
         unique_keys = {}
         next_number = 855500
         incidences = []
+        try:
+            orig_series = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_series = None
 
         for idx, row in df.iterrows():
             unique_key = f"{row.get('Id_Documento', '')}{row.get('Tipo_Facilidad', '')}"
@@ -1230,6 +1258,12 @@ class AT12TransformationEngine(TransformationEngine):
         """1.1. EEOR TABULAR: Whitespace Errors - Remove unnecessary spaces from text fields."""
         text_columns = df.select_dtypes(include=['object']).columns
         incidences = []
+        # Preserve original state for export (only text columns)
+        try:
+            original_df = df[text_columns].copy()
+        except Exception:
+            original_df = df.copy()
+        changed_cols: set = set()
         # Track modified rows across any text column
         try:
             overall_mask = pd.Series(False, index=df.index)
@@ -1250,6 +1284,7 @@ class AT12TransformationEngine(TransformationEngine):
                 if modified_count > 0:
                     # Apply the cleaning
                     df[col] = cleaned_values
+                    changed_cols.add(col)
                     if overall_mask is not None:
                         overall_mask = overall_mask | modified_mask
                     
@@ -1283,7 +1318,9 @@ class AT12TransformationEngine(TransformationEngine):
             # Export full-row subset for rows modified by EEOR cleaning
             try:
                 if overall_mask is not None and overall_mask.any():
-                    self._export_error_subset(df, overall_mask, 'BASE_AT12', 'EEOR_TABULAR', context, None)
+                    # Build mapping of original values for changed columns only
+                    original_columns = {c: original_df[c] for c in changed_cols if c in original_df.columns}
+                    self._export_error_subset(df, overall_mask, 'BASE_AT12', 'EEOR_TABULAR', context, None, original_columns=original_columns)
             except Exception:
                 pass
         
@@ -1296,10 +1333,17 @@ class AT12TransformationEngine(TransformationEngine):
 
         mask_0301 = df['Tipo_Garantia'] == '0301'
         incidences = []
+        # Track original Id_Documento for export
+        try:
+            orig_id_series = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_id_series = None
 
         for idx in df[mask_0301].index:
             id_documento = str(df.loc[idx, 'Id_Documento']) if pd.notna(df.loc[idx, 'Id_Documento']) else ''
             original_id = id_documento
+            if orig_id_series is not None:
+                orig_id_series.loc[idx] = original_id
 
             # Sub-Rule 1: positions 9-10 equal '01' or '41' or '42' → ensure length exactly 10
             cond_len_ge_10 = len(id_documento) >= 10
@@ -1386,7 +1430,8 @@ class AT12TransformationEngine(TransformationEngine):
         # Export a CSV with original columns for rows that had the 0301 condition
         try:
             if mask_0301.any():
-                self._export_error_subset(df, mask_0301, subtype or 'BASE_AT12', 'ERROR_0301', context, result)
+                original_columns = {'Id_Documento': orig_id_series} if orig_id_series is not None else None
+                self._export_error_subset(df, mask_0301, subtype or 'BASE_AT12', 'ERROR_0301', context, result, original_columns=original_columns)
         except Exception:
             pass
 
@@ -1400,6 +1445,10 @@ class AT12TransformationEngine(TransformationEngine):
         # Find records with commas in Id_Documento
         mask_comma = df['Id_Documento'].astype(str).str.contains(',', na=False)
         incidences = []
+        try:
+            orig_series = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_series = None
         
         if mask_comma.sum() > 0:
             # Store original values for incidence reporting
@@ -1407,6 +1456,8 @@ class AT12TransformationEngine(TransformationEngine):
                 original_id = df.loc[idx, 'Id_Documento']
                 corrected_id = str(original_id).replace(',', '')
                 df.loc[idx, 'Id_Documento'] = corrected_id
+                if orig_series is not None:
+                    orig_series.loc[idx] = original_id
                 
                 incidences.append({
                     'Index': idx,
@@ -1419,7 +1470,8 @@ class AT12TransformationEngine(TransformationEngine):
             self.logger.info(f"Removed commas from {len(incidences)} Id_Documento records")
             # Export subset of rows with this issue keeping original columns
             try:
-                self._export_error_subset(df, mask_comma, 'BASE_AT12', 'COMA_EN_FINCA_EMPRESA', context, None)
+                original_columns = {'Id_Documento': orig_series} if orig_series is not None else None
+                self._export_error_subset(df, mask_comma, 'BASE_AT12', 'COMA_EN_FINCA_EMPRESA', context, None, original_columns=original_columns)
             except Exception:
                 pass
         
@@ -1444,17 +1496,21 @@ class AT12TransformationEngine(TransformationEngine):
                     if year > 2100 or year < 1985:
                         original_fecha = df.loc[idx, 'Fecha_Vencimiento']
                         df.loc[idx, 'Fecha_Vencimiento'] = '21001231'
-                        
-                        incidences.append({
-                            'Index': idx,
-                            'Original_Fecha_Vencimiento': original_fecha,
-                            'Corrected_Fecha_Vencimiento': '21001231',
-                            'Rule': 'FECHA_CANCELACION_ERRADA'
-                        })
+                    if orig_series is not None:
+                        orig_series.loc[idx] = original_fecha
+                    
+                    incidences.append({
+                        'Index': idx,
+                        'Original_Fecha_Vencimiento': original_fecha,
+                        'Corrected_Fecha_Vencimiento': '21001231',
+                        'Rule': 'FECHA_CANCELACION_ERRADA'
+                    })
                 except ValueError:
                     # Invalid date format, also correct
                     original_fecha = df.loc[idx, 'Fecha_Vencimiento']
                     df.loc[idx, 'Fecha_Vencimiento'] = '21001231'
+                    if orig_series is not None:
+                        orig_series.loc[idx] = original_fecha
                     
                     incidences.append({
                         'Index': idx,
@@ -1471,7 +1527,8 @@ class AT12TransformationEngine(TransformationEngine):
                 idxs = [rec.get('Index') for rec in incidences if 'Index' in rec]
                 if idxs:
                     mask = df.index.isin(idxs)
-                    self._export_error_subset(df, mask, 'BASE_AT12', 'FECHA_CANCELACION_ERRADA', context, None)
+                    original_columns = {'Fecha_Vencimiento': orig_series} if orig_series is not None else None
+                    self._export_error_subset(df, mask, 'BASE_AT12', 'FECHA_CANCELACION_ERRADA', context, None, original_columns=original_columns)
             except Exception:
                 pass
         
@@ -1512,6 +1569,11 @@ class AT12TransformationEngine(TransformationEngine):
             # Fallback if context doesn't have proper date info
             cutoff_date = "20231231"  # Default cutoff
         
+        try:
+            orig_series_avaluo = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_series_avaluo = None
+
         for idx in df.index:
             fecha_val = str(df.loc[idx, 'Fecha_Ultima_Actualizacion'])
             numero_prestamo = df.loc[idx, 'Numero_Prestamo']
@@ -1537,6 +1599,8 @@ class AT12TransformationEngine(TransformationEngine):
                     original_fecha = df.loc[idx, 'Fecha_Ultima_Actualizacion']
                     new_fecha = at03_match.iloc[0]['fec_ini_prestamo']
                     df.loc[idx, 'Fecha_Ultima_Actualizacion'] = new_fecha
+                    if orig_series_avaluo is not None:
+                        orig_series_avaluo.loc[idx] = original_fecha
                     
                     incidences.append({
                         'Index': idx,
@@ -1555,7 +1619,8 @@ class AT12TransformationEngine(TransformationEngine):
                 idxs = [rec.get('Index') for rec in incidences if 'Index' in rec]
                 if idxs:
                     mask_export = df.index.isin(idxs)
-                    self._export_error_subset(df, mask_export, 'BASE_AT12', 'FECHA_AVALUO_ERRADA', context, None)
+                    original_columns = {'Fecha_Ultima_Actualizacion': orig_series_avaluo} if orig_series_avaluo is not None else None
+                    self._export_error_subset(df, mask_export, 'BASE_AT12', 'FECHA_AVALUO_ERRADA', context, None, original_columns=original_columns)
             except Exception:
                 pass
         
@@ -1574,6 +1639,10 @@ class AT12TransformationEngine(TransformationEngine):
 
         df = df.copy()
         incidences = []
+        try:
+            orig_tipo_poliza = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_tipo_poliza = None
 
         # Normalizar vacío de Tipo_Poliza
         is_empty_tipo_poliza = df['Tipo_Poliza'].isna() | (df['Tipo_Poliza'].astype(str).str.strip() == '')
@@ -1584,6 +1653,8 @@ class AT12TransformationEngine(TransformationEngine):
             for idx in df[mask_0208].index:
                 original = df.loc[idx, 'Tipo_Poliza']
                 df.loc[idx, 'Tipo_Poliza'] = '01'
+                if orig_tipo_poliza is not None:
+                    orig_tipo_poliza.loc[idx] = original
                 incidences.append({
                     'Index': int(idx),
                     'Tipo_Garantia': '0208',
@@ -1614,6 +1685,8 @@ class AT12TransformationEngine(TransformationEngine):
                             if normalized in {'01', '02'}:
                                 original = df.loc[idx, 'Tipo_Poliza']
                                 df.loc[idx, 'Tipo_Poliza'] = normalized
+                                if orig_tipo_poliza is not None:
+                                    orig_tipo_poliza.loc[idx] = original
                                 incidences.append({
                                     'Index': int(idx),
                                     'Tipo_Garantia': '0207',
@@ -1627,7 +1700,8 @@ class AT12TransformationEngine(TransformationEngine):
             self._store_incidences('INMUEBLES_SIN_TIPO_POLIZA', incidences, context)
             try:
                 mask_export = mask_0208 | mask_0207
-                self._export_error_subset(df, mask_export, 'BASE_AT12', 'INMUEBLES_SIN_TIPO_POLIZA', context, None)
+                original_columns = {'Tipo_Poliza': orig_tipo_poliza} if orig_tipo_poliza is not None else None
+                self._export_error_subset(df, mask_export, 'BASE_AT12', 'INMUEBLES_SIN_TIPO_POLIZA', context, None, original_columns=original_columns)
             except Exception:
                 pass
 
@@ -1651,10 +1725,16 @@ class AT12TransformationEngine(TransformationEngine):
         mask = tg.isin({'0207', '0208', '0209'}) & is_invalid
 
         incidences = []
+        try:
+            orig_idoc = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_idoc = None
         if mask.any():
             for idx in df[mask].index:
                 original = df.loc[idx, 'Id_Documento']
                 df.loc[idx, 'Id_Documento'] = '99999/99999'
+                if orig_idoc is not None:
+                    orig_idoc.loc[idx] = original
                 incidences.append({
                     'Index': int(idx),
                     'Tipo_Garantia': df.loc[idx, 'Tipo_Garantia'],
@@ -1665,7 +1745,8 @@ class AT12TransformationEngine(TransformationEngine):
 
             self._store_incidences('INMUEBLES_SIN_FINCA', incidences, context)
             try:
-                self._export_error_subset(df, mask, 'BASE_AT12', 'INMUEBLES_SIN_FINCA', context, None)
+                original_columns = {'Id_Documento': orig_idoc} if orig_idoc is not None else None
+                self._export_error_subset(df, mask, 'BASE_AT12', 'INMUEBLES_SIN_FINCA', context, None, original_columns=original_columns)
             except Exception:
                 pass
 
@@ -1683,10 +1764,16 @@ class AT12TransformationEngine(TransformationEngine):
         mask = (tg == '0106') & is_empty_nom
 
         incidences = []
+        try:
+            orig_nom = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_nom = None
         if mask.any():
             for idx in df[mask].index:
                 original_nom = df.loc[idx, 'Nombre_Organismo']
                 df.loc[idx, 'Nombre_Organismo'] = '700'
+                if orig_nom is not None:
+                    orig_nom.loc[idx] = original_nom
                 incidences.append({
                     'Index': int(idx),
                     'Tipo_Garantia': '0106',
@@ -1696,7 +1783,8 @@ class AT12TransformationEngine(TransformationEngine):
                 })
             self._store_incidences('AUTO_COMERCIAL_ORG_CODE', incidences, context)
             try:
-                self._export_error_subset(df, mask, 'BASE_AT12', 'AUTO_COMERCIAL_ORG_CODE', context, None)
+                original_columns = {'Nombre_Organismo': orig_nom} if orig_nom is not None else None
+                self._export_error_subset(df, mask, 'BASE_AT12', 'AUTO_COMERCIAL_ORG_CODE', context, None, original_columns=original_columns)
             except Exception:
                 pass
 
@@ -1718,6 +1806,10 @@ class AT12TransformationEngine(TransformationEngine):
         mask = (tg == '0101') & is_empty_idoc
 
         incidences = []
+        try:
+            orig_idoc = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_idoc = None
         if mask.any():
             if 'GARANTIA_AUTOS_AT12' not in source_data or source_data['GARANTIA_AUTOS_AT12'].empty:
                 self.logger.warning("GARANTIA_AUTOS_AT12 data not available for auto policy Id_Documento completion")
@@ -1733,6 +1825,8 @@ class AT12TransformationEngine(TransformationEngine):
                         if pd.notna(val) and str(val).strip() != '':
                             original = df.loc[idx, 'Id_Documento']
                             df.loc[idx, 'Id_Documento'] = str(val).strip()
+                            if orig_idoc is not None:
+                                orig_idoc.loc[idx] = original
                             incidences.append({
                                 'Index': int(idx),
                                 'Tipo_Garantia': '0101',
@@ -1745,7 +1839,8 @@ class AT12TransformationEngine(TransformationEngine):
         if incidences:
             self._store_incidences('AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', incidences, context)
             try:
-                self._export_error_subset(df, mask, 'BASE_AT12', 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', context, None)
+                original_columns = {'Id_Documento': orig_idoc} if orig_idoc is not None else None
+                self._export_error_subset(df, mask, 'BASE_AT12', 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', context, None, original_columns=original_columns)
             except Exception:
                 pass
 
@@ -1763,10 +1858,16 @@ class AT12TransformationEngine(TransformationEngine):
         mask = tg.isin({'0207', '0208', '0209'}) & is_empty_nom
 
         incidences = []
+        try:
+            orig_nom = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_nom = None
         if mask.any():
             for idx in df[mask].index:
                 original_nom = df.loc[idx, 'Nombre_Organismo']
                 df.loc[idx, 'Nombre_Organismo'] = '774'
+                if orig_nom is not None:
+                    orig_nom.loc[idx] = original_nom
                 incidences.append({
                     'Index': int(idx),
                     'Tipo_Garantia': str(df.loc[idx, 'Tipo_Garantia']),
@@ -1776,7 +1877,8 @@ class AT12TransformationEngine(TransformationEngine):
                 })
             self._store_incidences('INMUEBLE_SIN_AVALUADORA_ORG_CODE', incidences, context)
             try:
-                self._export_error_subset(df, mask, 'BASE_AT12', 'INMUEBLE_SIN_AVALUADORA_ORG_CODE', context, None)
+                original_columns = {'Nombre_Organismo': orig_nom} if orig_nom is not None else None
+                self._export_error_subset(df, mask, 'BASE_AT12', 'INMUEBLE_SIN_AVALUADORA_ORG_CODE', context, None, original_columns=original_columns)
             except Exception:
                 pass
 
