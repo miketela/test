@@ -135,8 +135,8 @@ class AT12TransformationEngine(TransformationEngine):
             out_df = df.loc[mask].copy()
             if out_df.empty:
                 return
-            # Build filename focusing on rule name and subtype
-            filename = f"INC_{rule_name}_{subtype}_{context.period}.csv"
+            # Simplified naming without INC_ prefix: [RULE]_[YYYYMMDD].csv
+            filename = f"{rule_name}_{context.period}.csv"
             out_path = context.paths.incidencias_dir / filename
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_df.to_csv(
@@ -1125,8 +1125,9 @@ class AT12TransformationEngine(TransformationEngine):
                 continue
             try:
                 incidences_df = pd.DataFrame(incidences)
-                incidence_filename = f"EEOO_TABULAR_{subtype}_AT12_{context.period}.csv"
-                incidence_path = context.paths.get_incidencia_path(incidence_filename)
+                # Simplified naming without INC_ prefix: [RULE]_[YYYYMMDD].csv
+                incidence_filename = f"{subtype}_{context.period}.csv"
+                incidence_path = context.paths.incidencias_dir / incidence_filename
                 if self._save_dataframe_as_csv(incidences_df, incidence_path):
                     result.incidence_files.append(incidence_path)
                     self.logger.info(f"Generated global incidence file: {incidence_path}")

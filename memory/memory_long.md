@@ -178,23 +178,23 @@ Se alinearon las reglas de la Fase 1 con `context_files/transform_context.md` y 
 - 1.6 Inmuebles sin Póliza (Tipo_Poliza)
   - `Tipo_Garantia='0208'` y `Tipo_Poliza` vacío → `Tipo_Poliza='01'`.
   - `Tipo_Garantia='0207'` y `Tipo_Poliza` vacío → JOIN `POLIZA_HIPOTECAS_AT12` (`Numero_Prestamo` ↔ `numcred`) y, si `seguro_incendio` ∈ {'01','02'}, asignar.
-  - Incidencia: `INMUEBLES_SIN_TIPO_POLIZA` → `INC_INMUEBLES_SIN_TIPO_POLIZA_BASE_AT12_<PERIODO>.csv`.
+- Incidencia: `INMUEBLES_SIN_TIPO_POLIZA` → `INMUEBLES_SIN_TIPO_POLIZA_<PERIODO>.csv`.
 
 - 1.7 Inmuebles sin Finca
   - `Tipo_Garantia` ∈ {'0207','0208','0209'} con `Id_Documento` vacío o en {"0/0","1/0","1/1","1","9999/1","0/1","0"} → `Id_Documento='99999/99999'`.
-  - Incidencia: `INMUEBLES_SIN_FINCA` → `INC_INMUEBLES_SIN_FINCA_BASE_AT12_<PERIODO>.csv`.
+- Incidencia: `INMUEBLES_SIN_FINCA` → `INMUEBLES_SIN_FINCA_<PERIODO>.csv`.
 
 - 1.8 Póliza Auto Comercial
   - `Tipo_Garantia='0106'` y `Nombre_Organismo` vacío → `Nombre_Organismo='700'`.
-  - Incidencia: `AUTO_COMERCIAL_ORG_CODE` → `INC_AUTO_COMERCIAL_ORG_CODE_BASE_AT12_<PERIODO>.csv`.
+- Incidencia: `AUTO_COMERCIAL_ORG_CODE` → `AUTO_COMERCIAL_ORG_CODE_<PERIODO>.csv`.
 
 - 1.9 Error en Póliza de Auto
   - `Tipo_Garantia='0101'` y `Id_Documento` vacío → JOIN `GARANTIA_AUTOS_AT12` (`Numero_Prestamo` ↔ `numcred`), `Id_Documento = num_poliza`.
-  - Incidencia: `AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS` → `INC_AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS_BASE_AT12_<PERIODO>.csv`.
+- Incidencia: `AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS` → `AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS_<PERIODO>.csv`.
 
 - 1.10 Inmueble sin Avaluadora
   - `Tipo_Garantia` ∈ {'0207','0208','0209'} y `Nombre_Organismo` vacío → `Nombre_Organismo='774'`.
-  - Incidencia: `INMUEBLE_SIN_AVALUADORA_ORG_CODE` → `INC_INMUEBLE_SIN_AVALUADORA_ORG_CODE_BASE_AT12_<PERIODO>.csv`.
+- Incidencia: `INMUEBLE_SIN_AVALUADORA_ORG_CODE` → `INMUEBLE_SIN_AVALUADORA_ORG_CODE_<PERIODO>.csv`.
 
 Notas:
 - Todas las incidencias exportan subset de filas completas con las columnas originales.

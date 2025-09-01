@@ -51,6 +51,8 @@
 
 Tests unitarios agregados para 1.6–1.10 (archivo `tests/unit/test_at12_transformation_phase1.py`). Ejecutar con `pytest -m unit`.
 
+Formato de incidencias por regla: `<REGLA>_<YYYYMMDD>.csv` (simplificado, sin prefijo).
+
 ## Próxima Acción
 
 **Pendiente:** Ajustes menores Stage 2/3 según nuevas especificaciones; ejecutar `pytest -m unit` y validar con datos reales.
