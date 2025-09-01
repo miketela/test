@@ -1,9 +1,9 @@
 # Memoria a Corto Plazo: Estado Actual del Proyecto
 
-## Estado del Proyecto: ✅ SISTEMA DE INCIDENCIAS AT12 CORREGIDO
+## Estado del Proyecto: ✅ FASE 1 AT12 ALINEADA + INCIDENCIAS ESTANDAR
 
 **Run ID Actual:** `202401__run-202401`  
-**Última Actualización:** Sistema de incidencias AT12 completamente corregido y estandarizado
+**Última Actualización:** Reglas Fase 1 (1.6–1.10) alineadas con Transform Context; incidencias y joins implementados
 
 ## Decisiones Técnicas Clave (STM)
 
@@ -40,19 +40,17 @@
 **Reportes PDF:** `/reports/exploration_metrics_AT12_202401__run-202401_report_with_stats.pdf`  
 **Datos Procesados:** `/data/raw/BASE_AT12_20240131__run-202401.CSV`
 
-**✅ Sistema de Incidencias AT12 Corregido:**
-- **Conflicto de métodos resuelto**: Eliminado método `_add_incidence` duplicado que causaba `incidence_type` incorrecto
-- **Firmas estandarizadas**: Todos los llamados a `_add_incidence` actualizados con parámetros correctos
-- **Validaciones funcionando**: Test `test_phase4_valor_minimo_avaluo_incidence` pasando correctamente
-- **Campos correctos**: `VALIDATION_FAILURE`, `HIGH` severity, `rule_name` y `metadata` apropiados
+**✅ Fase 1 Alineada (Reglas Clave):**
+- 1.6 `INMUEBLES_SIN_TIPO_POLIZA`: 0208 → '01'; 0207 JOIN `POLIZA_HIPOTECAS_AT12` (`Numero_Prestamo` ↔ `numcred`) usando `seguro_incendio` ('01'/'02').
+- 1.7 `INMUEBLES_SIN_FINCA`: `Id_Documento='99999/99999'` (valores inválidos definidos).
+- 1.8 `AUTO_COMERCIAL_ORG_CODE`: `Nombre_Organismo='700'` si `Tipo_Garantia='0106'`.
+- 1.9 `AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS`: JOIN `GARANTIA_AUTOS_AT12` (`Numero_Prestamo` ↔ `numcred`) → `Id_Documento=num_poliza`.
+- 1.10 `INMUEBLE_SIN_AVALUADORA_ORG_CODE`: `Nombre_Organismo='774'` para 0207/0208/0209.
 
 ## Tests - Estado Final
 
-**Suite Completa:** 70 passed, 2 skipped, 0 failed  
-**Integración:** 10 passed - Todos los flujos de trabajo funcionando  
-**AT12 Phase4:** ✅ Test de validación VALOR_MINIMO_AVALUO pasando  
-**Warnings:** 225 (esperados - parsing de fechas)
+Tests unitarios agregados para 1.6–1.10 (archivo `tests/unit/test_at12_transformation_phase1.py`). Ejecutar con `pytest -m unit`.
 
 ## Próxima Acción
 
-**Pendiente:** Implementar flujo 'transform' (requiere especificaciones funcionales)
+**Pendiente:** Ajustes menores Stage 2/3 según nuevas especificaciones; ejecutar `pytest -m unit` y validar con datos reales.

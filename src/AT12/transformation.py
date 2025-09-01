@@ -308,10 +308,10 @@ class AT12TransformationEngine(TransformationEngine):
         if source_data:
             df = self._apply_fecha_avaluo_correction(df, context, source_data)
         
-        df = self._apply_inmuebles_sin_poliza_correction(df, context)
+        df = self._apply_inmuebles_sin_poliza_correction(df, context, source_data)
         df = self._apply_inmuebles_sin_finca_correction(df, context)
         df = self._apply_poliza_auto_comercial_correction(df, context)
-        df = self._apply_error_poliza_auto_correction(df, context)
+        df = self._apply_error_poliza_auto_correction(df, context, source_data)
         df = self._apply_inmueble_sin_avaluadora_correction(df, context)
         
         self.logger.info("Completed Phase 1: Error correction")
@@ -1552,175 +1552,223 @@ class AT12TransformationEngine(TransformationEngine):
         
         return df
     
-    def _apply_inmuebles_sin_poliza_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
-        """1.6. Inmuebles sin Póliza: Correct missing policy numbers for real estate."""
-        if 'Tipo_Garantia' not in df.columns or 'Numero_Poliza' not in df.columns:
+    def _apply_inmuebles_sin_poliza_correction(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """1.6. Inmuebles sin Póliza (Tipo_Poliza) alineado a especificación.
+
+        - Caso 0207: JOIN con POLIZA_HIPOTECAS_AT12 por Numero_Prestamo = numcred; si `seguro_incendio` tiene valor,
+          setear `Tipo_Poliza` a '01' o '02'.
+        - Caso 0208: si `Tipo_Poliza` vacío, setear a '01'.
+        """
+        # Requisitos mínimos de columnas en la base
+        if 'Tipo_Garantia' not in df.columns or 'Tipo_Poliza' not in df.columns or 'Numero_Prestamo' not in df.columns:
             return df
-        
-        # Find real estate guarantees without policy number
-        mask_inmueble = df['Tipo_Garantia'].isin(['INMUEBLE', 'INMUEBLES'])
-        mask_sin_poliza = (df['Numero_Poliza'].isna()) | (df['Numero_Poliza'].astype(str).str.strip() == '')
-        mask_correction = mask_inmueble & mask_sin_poliza
-        
+
+        df = df.copy()
         incidences = []
-        
-        if mask_correction.sum() > 0:
-            for idx in df[mask_correction].index:
-                original_poliza = df.loc[idx, 'Numero_Poliza']
-                df.loc[idx, 'Numero_Poliza'] = '0'
-                
+
+        # Normalizar vacío de Tipo_Poliza
+        is_empty_tipo_poliza = df['Tipo_Poliza'].isna() | (df['Tipo_Poliza'].astype(str).str.strip() == '')
+
+        # Caso 0208: constante '01' cuando está vacío
+        mask_0208 = (df['Tipo_Garantia'].astype(str) == '0208') & is_empty_tipo_poliza
+        if mask_0208.any():
+            for idx in df[mask_0208].index:
+                original = df.loc[idx, 'Tipo_Poliza']
+                df.loc[idx, 'Tipo_Poliza'] = '01'
                 incidences.append({
-                    'Index': idx,
-                    'Tipo_Garantia': df.loc[idx, 'Tipo_Garantia'],
-                    'Original_Numero_Poliza': original_poliza,
-                    'Corrected_Numero_Poliza': '0',
-                    'Rule': 'INMUEBLES_SIN_POLIZA'
+                    'Index': int(idx),
+                    'Tipo_Garantia': '0208',
+                    'Original_Tipo_Poliza': original,
+                    'Corrected_Tipo_Poliza': '01',
+                    'Rule': 'INMUEBLES_SIN_TIPO_POLIZA_0208_CONST'
                 })
-            
-            self._store_incidences('INMUEBLES_SIN_POLIZA', incidences, context)
-            self.logger.info(f"Corrected {len(incidences)} real estate records without policy number")
-            # Export subset rows
+
+        # Caso 0207: JOIN con POLIZA_HIPOTECAS_AT12 si disponible
+        mask_0207 = (df['Tipo_Garantia'].astype(str) == '0207') & is_empty_tipo_poliza
+        if mask_0207.any():
+            if 'POLIZA_HIPOTECAS_AT12' not in source_data or source_data['POLIZA_HIPOTECAS_AT12'].empty:
+                self.logger.warning("POLIZA_HIPOTECAS_AT12 data not available for 0207 Tipo_Poliza correction")
+            else:
+                hip_df = source_data['POLIZA_HIPOTECAS_AT12']
+                # Columnas esperadas: numcred, seguro_incendio
+                if 'numcred' in hip_df.columns and 'seguro_incendio' in hip_df.columns:
+                    # Preparar mapa numcred -> seguro_incendio
+                    map_seguro = hip_df.set_index('numcred')['seguro_incendio']
+                    for idx in df[mask_0207].index:
+                        key = df.loc[idx, 'Numero_Prestamo']
+                        if pd.isna(key):
+                            continue
+                        val = map_seguro.get(key, None)
+                        if pd.notna(val) and str(val).strip() != '':
+                            # Solo valores '01' o '02' per especificación; si otro, ignorar
+                            normalized = str(val).strip()
+                            if normalized in {'01', '02'}:
+                                original = df.loc[idx, 'Tipo_Poliza']
+                                df.loc[idx, 'Tipo_Poliza'] = normalized
+                                incidences.append({
+                                    'Index': int(idx),
+                                    'Tipo_Garantia': '0207',
+                                    'Numero_Prestamo': str(key),
+                                    'Original_Tipo_Poliza': original,
+                                    'Corrected_Tipo_Poliza': normalized,
+                                    'Rule': 'INMUEBLES_SIN_TIPO_POLIZA_0207_JOIN_HIPOTECAS'
+                                })
+
+        if incidences:
+            self._store_incidences('INMUEBLES_SIN_TIPO_POLIZA', incidences, context)
             try:
-                self._export_error_subset(df, mask_correction, 'BASE_AT12', 'INMUEBLES_SIN_POLIZA', context, None)
+                mask_export = mask_0208 | mask_0207
+                self._export_error_subset(df, mask_export, 'BASE_AT12', 'INMUEBLES_SIN_TIPO_POLIZA', context, None)
             except Exception:
                 pass
-        
+
         return df
     
     def _apply_inmuebles_sin_finca_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
-        """1.7. Inmuebles sin Finca: Correct missing property registration for real estate."""
+        """1.7. Inmuebles sin Finca: Normaliza Id_Documento a '99999/99999' según especificación.
+
+        Aplica cuando Tipo_Garantia in {'0207','0208','0209'} y `Id_Documento` está vacío o en
+        {"0/0", "1/0", "1/1", "1", "9999/1", "0/1", "0"}.
+        """
         if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns:
             return df
-        
-        # Find real estate guarantees without property ID
-        mask_inmueble = df['Tipo_Garantia'].isin(['INMUEBLE', 'INMUEBLES'])
-        mask_sin_finca = (df['Id_Documento'].isna()) | (df['Id_Documento'].astype(str).str.strip() == '')
-        mask_correction = mask_inmueble & mask_sin_finca
-        
+
+        df = df.copy()
+        invalid_values = {"0/0", "1/0", "1/1", "1", "9999/1", "0/1", "0"}
+
+        tg = df['Tipo_Garantia'].astype(str)
+        idoc = df['Id_Documento'].astype(str)
+        is_invalid = idoc.isna() | (idoc.str.strip() == '') | (idoc.str.strip().isin(invalid_values))
+        mask = tg.isin({'0207', '0208', '0209'}) & is_invalid
+
         incidences = []
-        
-        if mask_correction.sum() > 0:
-            for idx in df[mask_correction].index:
-                original_id = df.loc[idx, 'Id_Documento']
-                df.loc[idx, 'Id_Documento'] = '0'
-                
+        if mask.any():
+            for idx in df[mask].index:
+                original = df.loc[idx, 'Id_Documento']
+                df.loc[idx, 'Id_Documento'] = '99999/99999'
                 incidences.append({
-                    'Index': idx,
+                    'Index': int(idx),
                     'Tipo_Garantia': df.loc[idx, 'Tipo_Garantia'],
-                    'Original_Id_Documento': original_id,
-                    'Corrected_Id_Documento': '0',
-                    'Rule': 'INMUEBLES_SIN_FINCA'
+                    'Original_Id_Documento': original,
+                    'Corrected_Id_Documento': '99999/99999',
+                    'Rule': 'INMUEBLES_SIN_FINCA_NORMALIZACION'
                 })
-            
+
             self._store_incidences('INMUEBLES_SIN_FINCA', incidences, context)
-            self.logger.info(f"Corrected {len(incidences)} real estate records without property ID")
             try:
-                self._export_error_subset(df, mask_correction, 'BASE_AT12', 'INMUEBLES_SIN_FINCA', context, None)
+                self._export_error_subset(df, mask, 'BASE_AT12', 'INMUEBLES_SIN_FINCA', context, None)
             except Exception:
                 pass
-        
+
         return df
     
     def _apply_poliza_auto_comercial_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
-        """1.8. Póliza Auto Comercial: Correct commercial auto policy types."""
-        if 'Tipo_Poliza' not in df.columns or 'Codigo_Ramo' not in df.columns:
+        """1.8. Póliza Auto Comercial: Asignar Nombre_Organismo='700' cuando Tipo_Garantia='0106' y Nombre_Organismo vacío."""
+        if 'Tipo_Garantia' not in df.columns or 'Nombre_Organismo' not in df.columns:
             return df
-        
-        # Find commercial auto policies that need correction
-        mask_auto_comercial = (df['Tipo_Poliza'].astype(str).str.upper() == 'AUTO COMERCIAL')
+
+        df = df.copy()
+        tg = df['Tipo_Garantia'].astype(str)
+        nom = df['Nombre_Organismo']
+        is_empty_nom = nom.isna() | (nom.astype(str).str.strip() == '')
+        mask = (tg == '0106') & is_empty_nom
+
         incidences = []
-        
-        if mask_auto_comercial.sum() > 0:
-            for idx in df[mask_auto_comercial].index:
-                original_tipo = df.loc[idx, 'Tipo_Poliza']
-                original_codigo = df.loc[idx, 'Codigo_Ramo']
-                
-                df.loc[idx, 'Tipo_Poliza'] = 'Auto'
-                df.loc[idx, 'Codigo_Ramo'] = '3'
-                
+        if mask.any():
+            for idx in df[mask].index:
+                original_nom = df.loc[idx, 'Nombre_Organismo']
+                df.loc[idx, 'Nombre_Organismo'] = '700'
                 incidences.append({
-                    'Index': idx,
-                    'Original_Tipo_Poliza': original_tipo,
-                    'Corrected_Tipo_Poliza': 'Auto',
-                    'Original_Codigo_Ramo': original_codigo,
-                    'Corrected_Codigo_Ramo': '3',
-                    'Rule': 'POLIZA_AUTO_COMERCIAL'
+                    'Index': int(idx),
+                    'Tipo_Garantia': '0106',
+                    'Original_Nombre_Organismo': original_nom,
+                    'Corrected_Nombre_Organismo': '700',
+                    'Rule': 'AUTO_COMERCIAL_ORG_CODE'
                 })
-            
-            self._store_incidences('POLIZA_AUTO_COMERCIAL', incidences, context)
-            self.logger.info(f"Corrected {len(incidences)} commercial auto policy records")
+            self._store_incidences('AUTO_COMERCIAL_ORG_CODE', incidences, context)
             try:
-                self._export_error_subset(df, mask_auto_comercial, 'BASE_AT12', 'POLIZA_AUTO_COMERCIAL', context, None)
+                self._export_error_subset(df, mask, 'BASE_AT12', 'AUTO_COMERCIAL_ORG_CODE', context, None)
             except Exception:
                 pass
-        
+
         return df
     
-    def _apply_error_poliza_auto_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
-        """1.9. Error Póliza Auto: Correct auto policy codes."""
-        if 'Tipo_Poliza' not in df.columns or 'Codigo_Ramo' not in df.columns:
+    def _apply_error_poliza_auto_correction(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """1.9. Error en Póliza de Auto: Completar Id_Documento vía JOIN con GARANTIA_AUTOS_AT12.
+
+        Condición: Tipo_Garantia='0101' y Id_Documento vacío.
+        JOIN: Numero_Prestamo (BASE_AT12) = numcred (GARANTIA_AUTOS_AT12) → set Id_Documento = num_poliza.
+        """
+        if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns or 'Numero_Prestamo' not in df.columns:
             return df
-        
-        # Find auto policies with incorrect codes
-        mask_auto = (df['Tipo_Poliza'].astype(str).str.upper() == 'AUTO')
-        mask_wrong_code = ~(df['Codigo_Ramo'].astype(str).isin(['3', '4']))
-        mask_correction = mask_auto & mask_wrong_code
-        
+
+        df = df.copy()
+        tg = df['Tipo_Garantia'].astype(str)
+        idoc = df['Id_Documento']
+        is_empty_idoc = idoc.isna() | (idoc.astype(str).str.strip() == '')
+        mask = (tg == '0101') & is_empty_idoc
+
         incidences = []
-        
-        if mask_correction.sum() > 0:
-            for idx in df[mask_correction].index:
-                original_codigo = df.loc[idx, 'Codigo_Ramo']
-                df.loc[idx, 'Codigo_Ramo'] = '3'  # Default to code 3
-                
-                incidences.append({
-                    'Index': idx,
-                    'Tipo_Poliza': df.loc[idx, 'Tipo_Poliza'],
-                    'Original_Codigo_Ramo': original_codigo,
-                    'Corrected_Codigo_Ramo': '3',
-                    'Rule': 'ERROR_POLIZA_AUTO'
-                })
-            
-            self._store_incidences('ERROR_POLIZA_AUTO', incidences, context)
-            self.logger.info(f"Corrected {len(incidences)} auto policy code records")
+        if mask.any():
+            if 'GARANTIA_AUTOS_AT12' not in source_data or source_data['GARANTIA_AUTOS_AT12'].empty:
+                self.logger.warning("GARANTIA_AUTOS_AT12 data not available for auto policy Id_Documento completion")
+            else:
+                autos_df = source_data['GARANTIA_AUTOS_AT12']
+                if 'numcred' in autos_df.columns and 'num_poliza' in autos_df.columns:
+                    map_poliza = autos_df.set_index('numcred')['num_poliza']
+                    for idx in df[mask].index:
+                        key = df.loc[idx, 'Numero_Prestamo']
+                        if pd.isna(key):
+                            continue
+                        val = map_poliza.get(key, None)
+                        if pd.notna(val) and str(val).strip() != '':
+                            original = df.loc[idx, 'Id_Documento']
+                            df.loc[idx, 'Id_Documento'] = str(val).strip()
+                            incidences.append({
+                                'Index': int(idx),
+                                'Tipo_Garantia': '0101',
+                                'Numero_Prestamo': str(key),
+                                'Original_Id_Documento': original,
+                                'Corrected_Id_Documento': str(val).strip(),
+                                'Rule': 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS'
+                            })
+
+        if incidences:
+            self._store_incidences('AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', incidences, context)
             try:
-                self._export_error_subset(df, mask_correction, 'BASE_AT12', 'ERROR_POLIZA_AUTO', context, None)
+                self._export_error_subset(df, mask, 'BASE_AT12', 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', context, None)
             except Exception:
                 pass
-        
+
         return df
     
     def _apply_inmueble_sin_avaluadora_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
-        """1.10. Inmueble sin Avaluadora: Correct real estate without appraisal company."""
-        if 'Tipo_Poliza' not in df.columns or 'Codigo_Ramo' not in df.columns:
+        """1.10. Inmueble sin Avaluadora: Asignar Nombre_Organismo='774' cuando Tipo_Garantia in (0207,0208,0209) y Nombre_Organismo vacío."""
+        if 'Tipo_Garantia' not in df.columns or 'Nombre_Organismo' not in df.columns:
             return df
-        
-        # Find real estate policies without appraisal company
-        mask_inmueble_sin_avaluadora = (df['Tipo_Poliza'].astype(str).str.upper() == 'INMUEBLE SIN AVALUADORA')
+
+        df = df.copy()
+        tg = df['Tipo_Garantia'].astype(str)
+        nom = df['Nombre_Organismo']
+        is_empty_nom = nom.isna() | (nom.astype(str).str.strip() == '')
+        mask = tg.isin({'0207', '0208', '0209'}) & is_empty_nom
+
         incidences = []
-        
-        if mask_inmueble_sin_avaluadora.sum() > 0:
-            for idx in df[mask_inmueble_sin_avaluadora].index:
-                original_tipo = df.loc[idx, 'Tipo_Poliza']
-                original_codigo = df.loc[idx, 'Codigo_Ramo']
-                
-                df.loc[idx, 'Tipo_Poliza'] = 'Inmueble'
-                df.loc[idx, 'Codigo_Ramo'] = '5'
-                
+        if mask.any():
+            for idx in df[mask].index:
+                original_nom = df.loc[idx, 'Nombre_Organismo']
+                df.loc[idx, 'Nombre_Organismo'] = '774'
                 incidences.append({
-                    'Index': idx,
-                    'Original_Tipo_Poliza': original_tipo,
-                    'Corrected_Tipo_Poliza': 'Inmueble',
-                    'Original_Codigo_Ramo': original_codigo,
-                    'Corrected_Codigo_Ramo': '5',
-                    'Rule': 'INMUEBLE_SIN_AVALUADORA'
+                    'Index': int(idx),
+                    'Tipo_Garantia': str(df.loc[idx, 'Tipo_Garantia']),
+                    'Original_Nombre_Organismo': original_nom,
+                    'Corrected_Nombre_Organismo': '774',
+                    'Rule': 'INMUEBLE_SIN_AVALUADORA_ORG_CODE'
                 })
-            
-            self._store_incidences('INMUEBLE_SIN_AVALUADORA', incidences, context)
-            self.logger.info(f"Corrected {len(incidences)} real estate without appraisal company records")
+            self._store_incidences('INMUEBLE_SIN_AVALUADORA_ORG_CODE', incidences, context)
             try:
-                self._export_error_subset(df, mask_inmueble_sin_avaluadora, 'BASE_AT12', 'INMUEBLE_SIN_AVALUADORA', context, None)
+                self._export_error_subset(df, mask, 'BASE_AT12', 'INMUEBLE_SIN_AVALUADORA_ORG_CODE', context, None)
             except Exception:
                 pass
-        
+
         return df
