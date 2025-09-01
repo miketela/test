@@ -1696,7 +1696,13 @@ class AT12TransformationEngine(TransformationEngine):
             orig_tipo_poliza = None
 
         # Normalizar vacío de Tipo_Poliza
-        is_empty_tipo_poliza = df['Tipo_Poliza'].isna() | (df['Tipo_Poliza'].astype(str).str.strip() == '')
+        # Considera como vacío: NA/N/A (string), blancos y NaN
+        _tp = df['Tipo_Poliza'].astype(str).str.strip()
+        is_empty_tipo_poliza = (
+            df['Tipo_Poliza'].isna()
+            | (_tp == '')
+            | (_tp.str.upper().isin(['NA', 'N/A']))
+        )
 
         # Caso 0208: constante '01' cuando está vacío
         mask_0208 = (df['Tipo_Garantia'].astype(str) == '0208') & is_empty_tipo_poliza
