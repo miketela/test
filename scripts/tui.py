@@ -343,24 +343,29 @@ def action_explore(selected: List[Path]):
     else:
         print("Explore failed.")
         # Try to locate the per-run log file and show a short tail
+        _show_run_log_tail("explore", f"{year}{month:02d}")
+
+def _show_run_log_tail(command: str, run_id: str, lines: int = 25) -> None:
+    """Utility: show tail of the most recent log for a command/run_id."""
+    try:
+        log_dir = PROJECT_ROOT / "logs" / "AT12" / command
+        if not log_dir.exists():
+            return
+        candidates = [p for p in log_dir.glob(f"*{run_id}*.log") if p.is_file()]
+        if not candidates:
+            return
+        latest = max(candidates, key=lambda p: p.stat().st_mtime)
+        print(f"See detailed log: {latest}")
         try:
-            run_id = f"{year}{month:02d}"
-            log_dir = PROJECT_ROOT / "logs" / "AT12" / "explore"
-            if log_dir.exists():
-                candidates = [p for p in log_dir.glob(f"*{run_id}*.log") if p.is_file()]
-                if candidates:
-                    latest = max(candidates, key=lambda p: p.stat().st_mtime)
-                    print(f"See detailed log: {latest}")
-                    try:
-                        lines = latest.read_text(encoding="utf-8", errors="ignore").splitlines()
-                        tail = lines[-25:]
-                        print("Last 25 log lines:")
-                        for ln in tail:
-                            print("  " + ln)
-                    except Exception:
-                        pass
+            content = latest.read_text(encoding="utf-8", errors="ignore").splitlines()
+            tail = content[-lines:]
+            print(f"Last {lines} log lines:")
+            for ln in tail:
+                print("  " + ln)
         except Exception:
             pass
+    except Exception:
+        pass
 
 
 def action_transform():
@@ -417,6 +422,7 @@ def action_transform():
         print("Transform completed with warnings.")
     else:
         print("Transform failed.")
+        _show_run_log_tail("transform", f"{year}{month:02d}")
 
 
 def action_report():
@@ -438,6 +444,10 @@ def action_report():
                   "report", "--metrics-file", str(chosen), "--output", out])
     if rc != 0:
         print("Report generation failed.")
+        # Try to infer run_id from metrics filename and show report log tail
+        m = re.search(r"__run-(\d{6})", chosen.stem)
+        if m:
+            _show_run_log_tail("report", m.group(1))
 
 def _collect_output_files() -> List[Path]:
     """Collect output files for cleanup (testing only)."""
