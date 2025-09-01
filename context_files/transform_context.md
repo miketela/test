@@ -157,7 +157,7 @@ Output: Id_Documento is either unchanged or truncated to 15 characters. All devi
 **1.9. Error en Póliza de Auto (Error in Auto Policy)**
 *   **Objective:** To populate the missing policy number in auto guarantees.
 *   **Input Identification:** Records where `Tipo_Garantia` = '0101' AND `Id_Documento` is empty.
-*   **Detailed Process (Logic):** `JOIN` with `GARANTIA_AUTOS_AT12` on `Numero_Prestamo` = `numcred`. Populate `Id_Documento` with the value from `num_poliza`.
+*   **Detailed Process (Logic):** `JOIN` con `GARANTIA_AUTOS_AT12` por `Numero_Prestamo = numcred` con llaves normalizadas (solo dígitos, sin ceros a la izquierda). Poblar `Id_Documento` con `num_poliza`.
 
 **1.10. Inmueble sin Avaluadora (Property without Appraiser)**
 *   **Objective:** To assign an organization code to properties that are missing it.
@@ -265,6 +265,13 @@ This is a critical stage of the ETL pipeline where financial validations are per
             *   **File Path:** Save to the `consolidated/` directory.
 
 *   **Final Action (Output):** Four headerless `.txt` files are created in the `consolidated/` directory, each with its specific delimiter, representing the final output of the ETL pipeline.
+
+### **Nomenclatura de Incidencias (CSV)**
+- Subconjuntos por regla (filas completas):
+  - Formato: `[REGLA]_[SUBTIPO]_[YYYYMMDD].csv` (ej.: `FECHA_AVALUO_ERRADA_BASE_AT12_20250701.csv`).
+  - Incluyen columnas `_ORIGINAL` junto a cada campo corregido.
+- Agregados globales (p.ej., EEOR_TABULAR):
+  - Formato: `EEOR_TABULAR_[YYYYMMDD].csv`.
 
 ### **Anexo: Esquema de Archivos de Entrada**
 

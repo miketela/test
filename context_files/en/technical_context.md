@@ -19,8 +19,10 @@
 - Validate presence/order against `schema_headers.json` when available.
 
 ## Incidence Reporting
-- Standard fields: type, severity, rule_id, description, metadata; CSV exports under `transforms/AT12/incidencias/`.
+- Standard fields: type, severity, rule_id, description, metadata.
+- Per‑rule subsets: `[RULE]_[SUBTYPE]_[YYYYMMDD].csv` with `_ORIGINAL` columns next to corrected fields.
+- Global aggregates: `EEOR_TABULAR_[YYYYMMDD].csv`.
 
 ## Consolidation
 - Final TXT are headerless; delimiters: BASE `|`, TDC/SOBREGIRO/VALORES space.
-- Written under `transforms/AT12/procesados/` (optionally `consolidated/`).
+- Written under `transforms/AT12/consolidated/` (processed CSVs under `transforms/AT12/procesados/`).

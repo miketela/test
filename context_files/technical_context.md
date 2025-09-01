@@ -89,8 +89,9 @@ else:
 
 ## Transformation
 - **Hard preconditions:** all required subtypes present for period; headers valid (if schema exists).
-- **Single output file:** `AT12_CONSOLIDATED_<YYYYMM>__run-<run_id>.TXT` (layout TBD).
-- **Joins/dedup/calculated fields:** **pending** (documented in `pending.md`).
+- **Incidence subsets:** saved under `transforms/AT12/incidencias/` using `[RULE]_[SUBTYPE]_[YYYYMMDD].csv`; corrected fields include side-by-side `_ORIGINAL` columns.
+- **Global aggregates:** `EEOO_TABULAR_[YYYYMMDD].csv` (one row per event), also under `incidencias/`.
+- **Final TXT:** headerless; BASE `|`, TDC/SOBREGIRO/VALORES space; written under `transforms/AT12/consolidated/`.
 
 ## Logging, Audit & Versioning
 - **Console:** `INFO`, `WARNING`, `ERROR` (+ `DEBUG` with `--verbose`).
