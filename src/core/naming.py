@@ -225,6 +225,9 @@ class HeaderNormalizer:
         Returns:
             Cleaned header text
         """
+        # Remove BOM if present
+        if text and text[0] == '\ufeff':  # ZERO WIDTH NO-BREAK SPACE (BOM)
+            text = text.lstrip('\ufeff')
         # Remove parenthetical numbers like (0), (1), (2), etc.
         cleaned = re.sub(r'\(\d+\)', '', text)
         

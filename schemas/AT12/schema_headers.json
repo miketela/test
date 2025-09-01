@@ -63,17 +63,11 @@
     "Fecha_Vencimiento": null,
     "Tipo_Poliza": null,
     "Código_Región": null,
-    "Número_Garantía": null,
+    "num_garantía": null,
     "Número_Cis_Garantía": null,
     "Moneda": null,
     "Importe": null,
-    "Descripción_de_la_Garantía": null,
-    "ACMON": null,
-    "ACIMP2": null,
-    "ACNGA": null,
-    "ACCIS": null,
-    "LIMITE": null,
-    "SALDO": null
+    "Descripción de la Garantía": null
   },
   "VALORES_AT12": {
     "Fecha": null,

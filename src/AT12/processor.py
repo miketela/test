@@ -384,6 +384,16 @@ class AT12Processor:
                                 self.logger.info(f"  '{mapping_info['original']}' -> '{mapping_info['mapped']}' ({mapping_info['method']})")
                             if len(mapping_report['mappings']) > 5:
                                 self.logger.info(f"  ... and {len(mapping_report['mappings']) - 5} more mappings")
+                            # If mapping-based validation fails, provide extra diagnostics for TDC
+                            if not validation_result.get('is_valid') and parsed.subtype == 'TDC_AT12':
+                                try:
+                                    mapped_headers = HeaderMapper.map_headers(actual_headers, parsed.subtype)
+                                    self.logger.error("TDC header diagnostics: actual vs mapped vs expected")
+                                    self.logger.error(f"  Actual (first 10): {actual_headers[:10]}")
+                                    self.logger.error(f"  Mapped  (first 10): {mapped_headers[:10]}")
+                                    self.logger.error(f"  Expected(first 10): {list(expected_headers)[:10]}")
+                                except Exception:
+                                    pass
                         else:
                             # Use standard normalization
                             normalized_actual = HeaderNormalizer.normalize_headers(actual_headers)
@@ -612,8 +622,19 @@ class AT12Processor:
 
             # Find input files from data directory (case-insensitive extension)
             data_dir = Path(self.config['data_raw_dir'])
-            input_files = list(data_dir.glob(f"*__run-{run_id}.csv"))
-            input_files += list(data_dir.glob(f"*__run-{run_id}.CSV"))
+            candidates = list(data_dir.glob(f"*__run-{run_id}.csv"))
+            candidates += list(data_dir.glob(f"*__run-{run_id}.CSV"))
+            # Deduplicate for case-insensitive filesystems (e.g., Windows)
+            input_files = []
+            seen_paths = set()
+            for p in candidates:
+                try:
+                    rp = p.resolve()
+                except Exception:
+                    rp = p
+                if rp not in seen_paths:
+                    seen_paths.add(rp)
+                    input_files.append(p)
 
             if not input_files:
                 return ProcessingResult(
@@ -658,6 +679,15 @@ class AT12Processor:
                 stem = file_path.stem
                 m = _re.match(r"^(.+)_\d{8}__run-\d+$", stem)
                 subtype = m.group(1) if m else stem
+                # Apply internal uniformity: map headers for known subtypes
+                try:
+                    if subtype in ("TDC_AT12", "AT02_CUENTAS"):
+                        from ..core.header_mapping import HeaderMapper as _HM
+                        mapped_cols = _HM.map_headers(list(df.columns), subtype)
+                        if mapped_cols and len(mapped_cols) == len(df.columns):
+                            df.columns = mapped_cols
+                except Exception:
+                    pass
                 source_data[subtype] = df
 
             # Execute AT12 transformation using engine-specific API

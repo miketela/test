@@ -21,6 +21,113 @@ class AT12TransformationEngine(TransformationEngine):
         expected_subtypes = ['TDC', 'SOBREGIRO', 'VALORES']
         self._filename_parser = FilenameParser(expected_subtypes)
 
+    # -------------------- TDC helpers (normalization/enrichment) --------------------
+    def _normalize_tdc_basic(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Basic normalization for TDC: trim text and normalize monetary fields.
+
+        - Trim whitespace for object columns.
+        - Monetary fields: remove thousands '.', convert ',' to '.' for internal numeric use.
+        """
+        if df is None or df.empty:
+            return df
+        df = df.copy()
+        # Trim object columns
+        for col in df.columns:
+            if df[col].dtype == object:
+                df[col] = df[col].astype(str).str.strip()
+        # Monetary fields
+        money_cols = ['Valor_Inicial', 'Valor_Garantía', 'Valor_Garantia', 'Valor_Ponderado', 'Importe']
+        for col in money_cols:
+            if col in df.columns:
+                s = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+                df[col + '__num'] = pd.to_numeric(s, errors='coerce')
+        return df
+
+    def _normalize_tdc_keys(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Normalize Numero_Prestamo and Id_Documento according to rules.
+
+        - Numero_Prestamo: digits only; zfill(10) if < 10; keep if >= 10.
+        - Id_Documento: extract digits; if empty → Numero_Prestamo; zfill(10).
+        """
+        import re as _re
+        if df is None or df.empty:
+            return df
+        df = df.copy()
+
+        def _digits(s: str) -> str:
+            return ''.join(ch for ch in s if ch.isdigit())
+
+        # Numero_Prestamo
+        if 'Numero_Prestamo' in df.columns:
+            np_raw = df['Numero_Prestamo'].astype(str)
+            np_digits = np_raw.map(_digits)
+            def _norm_np(s: str) -> str:
+                if not s:
+                    return ''
+                return s if len(s) >= 10 else s.zfill(10)
+            df['Numero_Prestamo'] = np_digits.map(_norm_np)
+
+        # Id_Documento
+        if 'Id_Documento' in df.columns:
+            id_raw = df['Id_Documento'].astype(str)
+            id_digits = id_raw.map(_digits)
+            # fallback to Numero_Prestamo when empty
+            if 'Numero_Prestamo' in df.columns:
+                fallback = df['Numero_Prestamo'].astype(str)
+            else:
+                fallback = ''
+            def _norm_id(doc: str, fb: str) -> str:
+                doc = doc or ''
+                if not doc:
+                    doc = fb or ''
+                return doc if len(doc) >= 10 else doc.zfill(10)
+            df['Id_Documento'] = [
+                _norm_id(d, f)
+                for d, f in zip(id_digits.tolist(), (fallback if isinstance(fallback, pd.Series) else [fallback]*len(df)))
+            ]
+        return df
+
+    def _enrich_tdc_0507(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply constants and derived fields for Tipo_Garantia = '0507'."""
+        if df is None or df.empty:
+            return df
+        df = df.copy()
+        mask = df.get('Tipo_Garantia').astype(str) == '0507'
+        if not mask.any():
+            return df
+        # Constants
+        df.loc[mask, 'Clave_Pais'] = '24'
+        df.loc[mask, 'Clave_Empresa'] = '24'
+        df.loc[mask, 'Clave_Tipo_Garantia'] = '3'
+        df.loc[mask, 'Clave_Subtipo_Garantia'] = '61'
+        df.loc[mask, 'Clave_Tipo_Pren_Hipo'] = '0'
+        df.loc[mask, 'Tipo_Instrumento'] = 'NA'
+        df.loc[mask, 'Tipo_Poliza'] = 'NA'
+        df.loc[mask, 'Status_Garantia'] = '0'
+        df.loc[mask, 'Status_Prestamo'] = '-1'
+        # Derived
+        if 'Numero_Cis_Garantia' in df.columns:
+            df.loc[mask, 'Numero_Cis_Prestamo'] = df.loc[mask, 'Numero_Cis_Garantia']
+        if 'Numero_Ruc_Garantia' in df.columns:
+            df.loc[mask, 'Numero_Ruc_Prestamo'] = df.loc[mask, 'Numero_Ruc_Garantia']
+        # Segmento rule: 02 -> PREMIRA, else PRE
+        try:
+            seg_mask = mask & (df.get('Tipo_Facilidad').astype(str) == '02')
+            df.loc[seg_mask, 'Segmento'] = 'PREMIRA'
+            df.loc[mask & ~seg_mask, 'Segmento'] = 'PRE'
+        except Exception:
+            pass
+        # Importe = Valor_Garantia (use numeric internal if present)
+        if 'Valor_Garantia__num' in df.columns:
+            df.loc[mask, 'Importe__num'] = df.loc[mask, 'Valor_Garantia__num']
+        elif 'Valor_Garantía__num' in df.columns:
+            df.loc[mask, 'Importe__num'] = df.loc[mask, 'Valor_Garantía__num']
+        return df
+
+    def _format_money_comma(self, s: pd.Series) -> pd.Series:
+        """Format numeric series with comma decimal as string (no thousand sep)."""
+        return s.map(lambda x: ('' if pd.isna(x) else f"{float(x):.2f}".replace('.', ',')))
+
     def _export_error_subset(self, df: pd.DataFrame, mask: pd.Series, subtype: str, rule_name: str,
                               context: TransformationContext, result: Optional[TransformationResult]) -> None:
         """Export a CSV containing only rows that match the error mask, preserving all original columns."""
@@ -93,7 +200,7 @@ class AT12TransformationEngine(TransformationEngine):
         df = self._stage1_initial_cleansing(df, context, result, source_data, subtype)
         
         # Stage 2: Data Enrichment and Generation from Auxiliary Sources
-        df = self._stage2_enrichment(df, context, result, source_data)
+        df = self._stage2_enrichment(df, context, result, source_data, subtype)
         
         # Stage 3: Business Logic Application and Reporting
         df = self._stage3_business_logic(df, context, result, source_data)
@@ -114,9 +221,9 @@ class AT12TransformationEngine(TransformationEngine):
         """Stage 1: Initial Data Cleansing and Formatting"""
         return self._phase1_error_correction(df, context, result, source_data)
 
-    def _stage2_enrichment(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    def _stage2_enrichment(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame], subtype: str = "") -> pd.DataFrame:
         """Stage 2: Data Enrichment and Generation from Auxiliary Sources"""
-        return self._phase2_input_processing(df, context, result, source_data)
+        return self._phase2_input_processing(df, context, result, source_data, subtype_hint=subtype)
 
     def _stage3_business_logic(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """Stage 3: Business Logic Application and Reporting"""
@@ -211,12 +318,12 @@ class AT12TransformationEngine(TransformationEngine):
         return df
     
     def _phase2_input_processing(self, df: pd.DataFrame, context: TransformationContext, 
-                               result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+                               result: TransformationResult, source_data: Dict[str, pd.DataFrame], subtype_hint: str = "") -> pd.DataFrame:
         """Phase 2: Process input data based on subtype."""
         self.logger.info("Executing Phase 2: Input Processing")
         
-        # Determine subtype from context or DataFrame characteristics
-        subtype = self._determine_subtype(df, context)
+        # Determine subtype from hint or DataFrame characteristics
+        subtype = subtype_hint or self._determine_subtype(df, context)
         
         if subtype == 'TDC_AT12':
             return self._process_tdc_data(df, context, result, source_data)
@@ -243,13 +350,12 @@ class AT12TransformationEngine(TransformationEngine):
     
     def _process_tdc_data(self, df: pd.DataFrame, context: TransformationContext, 
                         result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Process TDC (Tarjeta de Crédito) specific data according to Stage 2 specifications."""
+        """Process TDC (Tarjeta de Crédito) specific data (minimal: number + date mapping + duplicates)."""
         self.logger.info("Processing TDC_AT12 data - Stage 2")
-        
-        # 2.1. TDC_AT12 Processing
-        # Step 1: Generate Número_Garantía
+
+        # Step 1: Generate Número_Garantía (legacy, in-memory)
         df = self._generate_numero_garantia_tdc(df, context)
-        
+
         # Step 2: Date Mapping with AT02_CUENTAS
         df = self._apply_date_mapping_tdc(df, context, source_data)
 
@@ -258,7 +364,6 @@ class AT12TransformationEngine(TransformationEngine):
             df = self._validate_tdc_tarjeta_repetida(df, context)
         except Exception as e:
             self.logger.warning(f"TDC 'Tarjeta_repetida' validation skipped due to error: {e}")
-        
         return df
 
     def _col_any(self, df: pd.DataFrame, candidates: list) -> Optional[str]:
@@ -324,71 +429,114 @@ class AT12TransformationEngine(TransformationEngine):
         """Process Sobregiro specific data according to Stage 2 specifications."""
         self.logger.info("Processing SOBREGIRO_AT12 data - Stage 2")
         
+        # Light normalization (trim + monetarias)
+        df = self._normalize_tdc_basic(df)
+
         # 2.2. SOBREGIRO_AT12 Processing
         # Apply the same JOIN and date mapping logic as TDC
         # The Numero_Garantia field is not modified for SOBREGIRO
         df = self._apply_date_mapping_sobregiro(df, context, source_data)
         
+        # Format money columns with comma decimal if normalized
+        for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe'):
+            num_col = col + '__num'
+            if num_col in df.columns:
+                target = 'Valor_Ponderado' if col == 'valor_ponderado' else ('Valor_Garantia' if col in ('Valor_Garantia', 'Valor_Garantía') else col)
+                df[target] = self._format_money_comma(df[num_col])
+        if 'Importe__num' in df.columns:
+            df['Importe'] = self._format_money_comma(df['Importe__num'])
+        
         return df
     
     def _process_valores_data(self, df: pd.DataFrame, context: TransformationContext, 
                             result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Process Valores specific data according to Stage 2 specifications."""
-        self.logger.info("Processing VALORES_AT12 data - Stage 2")
-        
-        # 2.3. VALORES_AT12 Generation
-        # Construct the securities atom with complete, final column structure
-        df = self._generate_valores_atom(df, context, source_data)
-        
+        """Process VALORES_AT12 applying ETL rules for garantías 0507."""
+        self.logger.info("Processing VALORES_AT12 data - Stage 2 (ETL 0507)")
+
+        # Step 0: Basic normalization (trim + money)
+        df = self._normalize_tdc_basic(df)
+
+        # Step 1: Keys normalization (Numero_Prestamo / Id_Documento)
+        df = self._normalize_tdc_keys(df)
+
+        # Step 2: Generate Numero_Garantia (persistent, padded) for 0507
+        df = self._generate_numero_garantia_valores(df, context)
+
+        # Step 3: Enrichment & derived fields for 0507
+        df = self._enrich_valores_0507(df)
+
+        # Step 4: Importe = Valor_Garantia; format monetarias con coma
+        for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'Importe'):
+            num_col = col + '__num'
+            if num_col in df.columns:
+                target_name = 'Valor_Garantia' if col in ('Valor_Garantia', 'Valor_Garantía') else col
+                df[target_name] = self._format_money_comma(df[num_col])
+        if 'Importe__num' in df.columns:
+            df['Importe'] = self._format_money_comma(df['Importe__num'])
+
+        # Step 5: Shape final output columns (transformado)
+        expected_cols = [
+            'Fecha', 'Codigo_Banco', 'Numero_Prestamo', 'Numero_Ruc_Garantia', 'Id_Fideicomiso',
+            'Nombre_Fiduciaria', 'Origen_Garantia', 'Tipo_Garantia', 'Tipo_Facilidad', 'Id_Documento',
+            'Nombre_Organismo', 'Valor_Inicial', 'Valor_Garantia', 'Valor_Ponderado', 'Tipo_Instrumento',
+            'Calificacion_Emisor', 'Calificacion_Emisision', 'Pais_Emision', 'Fecha_Ultima_Actualizacion',
+            'Fecha_Vencimiento', 'Tipo_Poliza', 'Codigo_Region', 'Clave_Pais', 'Clave_Empresa',
+            'Clave_Tipo_Garantia', 'Clave_Subtipo_Garantia', 'Clave_Tipo_Pren_Hipo', 'Numero_Garantia',
+            'Numero_Cis_Garantia', 'Numero_Cis_Prestamo', 'Numero_Ruc_Prestamo', 'Moneda', 'Importe',
+            'Status_Garantia', 'Status_Prestamo', 'Codigo_Origen', 'Segmento'
+        ]
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = ''
+        # Prefer non-accented Codigo_Banco if present via mapping
+        if 'Código_Banco' in df.columns and 'Codigo_Banco' not in df.columns:
+            df['Codigo_Banco'] = df['Código_Banco']
+        # Ensure Valor_Garantia column (non-accent)
+        if 'Valor_Garantia' not in df.columns and 'Valor_Garantía' in df.columns:
+            df['Valor_Garantia'] = df['Valor_Garantía']
+
+        df = df[expected_cols]
+        try:
+            df = df.sort_values(['Fecha', 'Codigo_Banco', 'Numero_Prestamo', 'Numero_Ruc_Garantia'], ascending=True)
+        except Exception:
+            pass
         return df
     
     def _generate_numero_garantia_tdc(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
-        """Generate unique guarantee codes for TDC_AT12 according to Stage 2.1 specifications."""
+        """Generate unique guarantee codes for TDC_AT12 according to original Stage 2.1 spec.
+
+        Non-persistent, in-memory assignment starting at 855500. Key uses Id_Documento+Tipo_Facilidad.
+        """
         self.logger.info("Generating Número_Garantía for TDC_AT12")
-        
-        # Preconditions: required columns (Numero_Prestamo no longer part of key)
+
         required_cols = ['Id_Documento', 'Tipo_Facilidad']
         missing_required = [c for c in required_cols if c not in df.columns]
         if missing_required:
             self.logger.warning(f"Skipping Número_Garantía generation; missing columns: {missing_required}")
-            # Ensure column exists even if we skip
             if 'Numero_Garantia' not in df.columns:
-                df = df.copy()
-                df['Numero_Garantia'] = None
+                df = df.copy(); df['Numero_Garantia'] = None
             return df
 
-        # Step 1: Clear the Número_Garantía column completely
         df = df.copy()
         df['Numero_Garantia'] = None
-        
-        # Step 2: Sort DataFrame by Id_Documento in descending order (per spec)
         df = df.sort_values('Id_Documento', ascending=False).reset_index(drop=True)
-        
-        # Step 3: Create unique key and assign sequential numbers starting at 855,500
+
         unique_keys = {}
         next_number = 855500
-        
         incidences = []
-        
+
         for idx, row in df.iterrows():
-            # Create unique key: Id_Documento + Tipo_Facilidad (Numero_Prestamo excluded)
             unique_key = f"{row.get('Id_Documento', '')}{row.get('Tipo_Facilidad', '')}"
-            
             if unique_key not in unique_keys:
-                # First occurrence: assign new sequential number
                 unique_keys[unique_key] = next_number
                 df.at[idx, 'Numero_Garantia'] = next_number
-                
-                # Record using standardized format
                 self._add_incidence(
                     incidence_type=IncidenceType.DATA_QUALITY,
                     severity=IncidenceSeverity.MEDIUM,
                     rule_id='TDC_NUMERO_GARANTIA_NEW_ASSIGNMENT',
                     description=f'New guarantee number {next_number} assigned',
-                    data={'record_index': int(idx), 'column_name': 'Numero_Garantia', 'original_value': '', 'corrected_value': str(next_number)}
+                    data={'record_index': int(idx), 'column_name': 'Numero_Garantia', 'corrected_value': str(next_number)}
                 )
-                
-                # Also keep legacy format for backward compatibility
                 incidences.append({
                     'Index': idx,
                     'Id_Documento': row.get('Id_Documento', ''),
@@ -397,12 +545,9 @@ class AT12TransformationEngine(TransformationEngine):
                     'Numero_Garantia_Assigned': next_number,
                     'Action': 'New guarantee number assigned'
                 })
-                
                 next_number += 1
             else:
-                # Subsequent occurrence: use existing number
                 df.at[idx, 'Numero_Garantia'] = unique_keys[unique_key]
-                
                 incidences.append({
                     'Index': idx,
                     'Id_Documento': row.get('Id_Documento', ''),
@@ -411,11 +556,9 @@ class AT12TransformationEngine(TransformationEngine):
                     'Numero_Garantia_Assigned': unique_keys[unique_key],
                     'Action': 'Existing guarantee number reused'
                 })
-        
-        # Store incidences
+
         if incidences:
             self._store_incidences('TDC_NUMERO_GARANTIA_GENERATION', incidences, context)
-        
         self.logger.info(f"Generated {len(unique_keys)} unique guarantee numbers for TDC_AT12")
         return df
     
@@ -581,59 +724,69 @@ class AT12TransformationEngine(TransformationEngine):
 
         return out
     
-    def _generate_valores_atom(self, df: pd.DataFrame, context: TransformationContext, 
-                              source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Generate VALORES_AT12 atom according to Stage 2.3 specifications."""
-        self.logger.info("Generating VALORES_AT12 atom")
-        
-        # Step 1: Select a reference record from BASE_AT12 where Tipo_Garantia = '0507'
-        if 'BASE_AT12' not in source_data or source_data['BASE_AT12'].empty:
-            self.logger.warning("BASE_AT12 data not found or is empty. Cannot generate VALORES_AT12.")
+    def _generate_numero_garantia_valores(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+        """Generate persistent Numero_Garantia for VALORES_AT12 (0507), padded to 10."""
+        from src.core.sequence import SequenceRegistry
+        if df is None or df.empty:
             return df
-        
-        base_df = source_data['BASE_AT12']
-        reference_records = base_df[base_df.get('Tipo_Garantia', '') == '0507']
-        
-        if reference_records.empty:
-            self.logger.warning("No reference record found with Tipo_Garantia = '0507'. Using first record as reference.")
-            if not base_df.empty:
-                reference_record = base_df.iloc[0]
-            else:
-                self.logger.error("BASE_AT12 is empty. Cannot generate VALORES_AT12.")
-                return df
-        else:
-            reference_record = reference_records.iloc[0]
-        
+        df = df.copy()
+        if 'Numero_Garantia' not in df.columns:
+            df['Numero_Garantia'] = None
+        mask = df.get('Tipo_Garantia').astype(str) == '0507'
+        state_dir = context.paths.base_transforms_dir / 'state'
+        state_file = state_dir / 'valores_numero_garantia.json'
+        start_num = int(getattr(context.config, 'valores_sequence_start', 1))
+        reg = SequenceRegistry(state_file, start_number=start_num)
         incidences = []
-        
-        # Step 2: Populate missing fields with reference record values
-        reference_fields = ['Clave_Pais', 'Clave_Empresa']
-        
-        for field in reference_fields:
-            if field not in df.columns:
-                df[field] = reference_record.get(field, '')
-                incidences.append({
-                    'Field': field,
-                    'Value_Added': reference_record.get(field, ''),
-                    'Action': f'Field {field} populated from reference record'
-                })
-            else:
-                # Fill missing values in existing columns
-                missing_mask = df[field].isna() | (df[field] == '')
-                if missing_mask.any():
-                    df.loc[missing_mask, field] = reference_record.get(field, '')
-                    incidences.append({
-                        'Field': field,
-                        'Records_Updated': missing_mask.sum(),
-                        'Value_Added': reference_record.get(field, ''),
-                        'Action': f'Missing values in {field} filled from reference record'
-                    })
-        
-        # Store incidences
+        for idx in df[mask].index:
+            key = f"{df.at[idx, 'Id_Documento']}|{df.at[idx, 'Tipo_Facilidad']}"
+            num = reg.get_or_assign(key)
+            padded = str(num).zfill(10)
+            df.at[idx, 'Numero_Garantia'] = padded
+            incidences.append({
+                'Index': int(idx),
+                'Numero_Garantia_Assigned': padded,
+                'Action': 'VALORES Numero_Garantia assigned (persistent)'
+            })
         if incidences:
-            self._store_incidences('VALORES_ATOM_GENERATION', incidences, context)
-        
-        self.logger.info(f"Generated VALORES_AT12 atom with {len(df)} records")
+            self._store_incidences('VALORES_NUMERO_GARANTIA_GENERATION', incidences, context)
+        return df
+
+    def _enrich_valores_0507(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply constants and derived fields to VALORES 0507 and derive Segmento."""
+        if df is None or df.empty:
+            return df
+        df = df.copy()
+        mask = df.get('Tipo_Garantia').astype(str) == '0507'
+        if not mask.any():
+            return df
+        # Constants
+        df.loc[mask, 'Clave_Pais'] = '24'
+        df.loc[mask, 'Clave_Empresa'] = '24'
+        df.loc[mask, 'Clave_Tipo_Garantia'] = '3'
+        df.loc[mask, 'Clave_Subtipo_Garantia'] = '61'
+        df.loc[mask, 'Clave_Tipo_Pren_Hipo'] = '0'
+        df.loc[mask, 'Tipo_Instrumento'] = 'NA'
+        df.loc[mask, 'Tipo_Poliza'] = 'NA'
+        df.loc[mask, 'Status_Garantia'] = '0'
+        df.loc[mask, 'Status_Prestamo'] = '-1'
+        # Derived
+        if 'Numero_Cis_Garantia' in df.columns:
+            df.loc[mask, 'Numero_Cis_Prestamo'] = df.loc[mask, 'Numero_Cis_Garantia']
+        if 'Numero_Ruc_Garantia' in df.columns:
+            df.loc[mask, 'Numero_Ruc_Prestamo'] = df.loc[mask, 'Numero_Ruc_Garantia']
+        # Segmento rule
+        try:
+            seg_mask = mask & (df.get('Tipo_Facilidad').astype(str) == '02')
+            df.loc[seg_mask, 'Segmento'] = 'PREMIRA'
+            df.loc[mask & ~seg_mask, 'Segmento'] = 'PRE'
+        except Exception:
+            pass
+        # Importe = Valor_Garantia__num (done in caller formatting)
+        if 'Valor_Garantia__num' in df.columns:
+            df.loc[mask, 'Importe__num'] = df.loc[mask, 'Valor_Garantia__num']
+        elif 'Valor_Garantía__num' in df.columns:
+            df.loc[mask, 'Importe__num'] = df.loc[mask, 'Valor_Garantía__num']
         return df
     
     def _phase3_filter_fuera_cierre(self, df: pd.DataFrame, context: TransformationContext, 
@@ -830,6 +983,12 @@ class AT12TransformationEngine(TransformationEngine):
             self.logger.error(f"Required column '{join_key_at03}' not found in AT03_CREDITOS.")
             return df
 
+        # Ensure both join keys have the same dtype to avoid object/int64 merge errors
+        try:
+            valor_minimo_df[join_key_valor] = valor_minimo_df[join_key_valor].astype(str)
+            at03_df[join_key_at03] = at03_df[join_key_at03].astype(str)
+        except Exception:
+            pass
         merged_df = valor_minimo_df.merge(at03_df, left_on=join_key_valor, right_on=join_key_at03, how='inner')
         self.logger.info(f"Merged data resulted in {len(merged_df)} records")
         

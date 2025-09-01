@@ -146,9 +146,58 @@ def list_raw_run_files(year: int, month: int) -> List[Path]:
         return files
     patt_csv = f"*__run-{year}{month:02d}.csv"
     patt_CSV = f"*__run-{year}{month:02d}.CSV"
-    files.extend(sorted(RAW_DIR.glob(patt_csv)))
-    files.extend(sorted(RAW_DIR.glob(patt_CSV)))
+    # On Windows (case-insensitive FS), the same file can match both patterns.
+    # Collect and then deduplicate by resolved path while preserving order.
+    candidates: List[Path] = []
+    candidates.extend(sorted(RAW_DIR.glob(patt_csv)))
+    candidates.extend(sorted(RAW_DIR.glob(patt_CSV)))
+    seen = set()
+    for p in candidates:
+        try:
+            rp = p.resolve()
+        except Exception:
+            rp = p
+        if rp not in seen:
+            seen.add(rp)
+            files.append(p)
     return files
+
+def list_all_raw_files() -> List[Path]:
+    """List all raw files across all runs, deduplicated by real path."""
+    files: List[Path] = []
+    if not RAW_DIR.exists():
+        return files
+    candidates: List[Path] = []
+    candidates.extend(sorted(RAW_DIR.glob("*__run-*.csv")))
+    candidates.extend(sorted(RAW_DIR.glob("*__run-*.CSV")))
+    seen = set()
+    for p in candidates:
+        try:
+            rp = p.resolve()
+        except Exception:
+            rp = p
+        if rp not in seen:
+            seen.add(rp)
+            files.append(p)
+    return files
+
+def find_latest_run_in_raw() -> Optional[Tuple[int, int]]:
+    """Scan data/raw and return the latest (year, month) found in __run-YYYYMM files."""
+    if not RAW_DIR.exists():
+        return None
+    runs: List[Tuple[int, int]] = []
+    for p in RAW_DIR.glob("*__run-*.csv"):
+        m = re.search(r"__run-(\d{6})", p.name)
+        if m:
+            yyyymm = m.group(1)
+            try:
+                runs.append((int(yyyymm[:4]), int(yyyymm[4:6])))
+            except Exception:
+                continue
+    if not runs:
+        return None
+    runs.sort()
+    return runs[-1]
 
 
 def infer_subtype(filename: str) -> str:
@@ -288,17 +337,14 @@ def action_explore(selected: List[Path]):
 
 
 def action_transform():
-    # Allow selecting which raw files to include for the chosen run
-    year = prompt_int("Year", 2024)
-    month = prompt_int("Month", 1)
-
-    available = list_raw_run_files(year, month)
-    if not available:
-        print(f"No files found in data/raw for run {year}{month:02d}.")
+    # New flow: pick files across all runs, then infer period from selection
+    all_available = list_all_raw_files()
+    if not all_available:
+        print("No files found in data/raw (no __run-*.csv files).")
         return
     # Optional subtype filter
-    wanted = prompt_subtype_filter(available)
-    list_for_pick = [p for p in available if not wanted or infer_subtype(p.name) in wanted]
+    wanted = prompt_subtype_filter(all_available)
+    list_for_pick = [p for p in all_available if not wanted or infer_subtype(p.name) in wanted]
     if not list_for_pick:
         print("No files after applying subtype filter.")
         return
@@ -306,6 +352,32 @@ def action_transform():
     if not chosen:
         print("No selection.")
         return
+
+    # Infer run(s) present in the selection
+    runs = sorted({re.search(r"__run-(\d{6})", p.name).group(1) for p in chosen if re.search(r"__run-(\d{6})", p.name)})
+    selected_run: Optional[str] = None
+    if not runs:
+        # Fallback to latest run across raw
+        latest = find_latest_run_in_raw()
+        if not latest:
+            print("Could not infer run from selection and no runs detected in data/raw.")
+            return
+        selected_run = f"{latest[0]}{latest[1]:02d}"
+        print(f"No run id in selection; using latest run {selected_run}")
+    elif len(runs) == 1:
+        selected_run = runs[0]
+        print(f"Detected run from selection: {selected_run}")
+    else:
+        # Multiple runs selected; ask user to pick one
+        selected_run = prompt_select("Multiple runs detected. Pick one run (YYYYMM)", runs, default=runs[-1])
+        # Filter chosen to only the selected run
+        chosen = [p for p in chosen if selected_run in p.name]
+        if not chosen:
+            print("No files left after narrowing by selected run.")
+            return
+
+    year = int(selected_run[:4])
+    month = int(selected_run[4:6])
 
     tmp_raw = prepare_tmp_raw(chosen)
     print(f"Using temporary RAW_DIR: {tmp_raw}")

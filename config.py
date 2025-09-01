@@ -46,6 +46,17 @@ class Config:
         # Output parameters
         self.output_delimiter = os.getenv("OUTPUT_DELIMITER", "|")
         self.trailing_delimiter = os.getenv("TRAILING_DELIMITER", "false").lower() == "true"
+
+        # Sequences and IDs
+        # Starting point for TDC Numero_Garantia sequence (overridable per env)
+        try:
+            self.tdc_sequence_start = int(os.getenv("TDC_SEQUENCE_START", "1"))
+        except ValueError:
+            self.tdc_sequence_start = 1
+        try:
+            self.valores_sequence_start = int(os.getenv("VALORES_SEQUENCE_START", "1"))
+        except ValueError:
+            self.valores_sequence_start = 1
         
         # Logging
         self.log_level = os.getenv("LOG_LEVEL", "INFO")

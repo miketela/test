@@ -23,6 +23,94 @@ class HeaderMapper:
         'Importe_por_pagar', 'Segmento'
     ]
     
+    # Expected headers for TDC_AT12 as defined by user-provided headers.
+    # Preserve spaces and accents exactly as provided for validation.
+    TDC_AT12_EXPECTED = [
+        'Fecha',
+        'Código_Banco',
+        'Número_Préstamo',
+        'Número_Ruc_Garantía',
+        'Id_Fideicomiso',
+        'Nombre_Fiduciaria',
+        'Origen_Garantía',
+        'Tipo_Garantía',
+        'Tipo_Facilidad',
+        'Id_Documento',
+        'Nombre_Organismo',
+        'Valor_Inicial',
+        'Valor_Garantía',
+        'Valor_Ponderado',
+        'Tipo_Instrumento',
+        'Calificación_Emisor',
+        'Calificación_Emisión',
+        'País_Emisión',
+        'Fecha_Última_Actualización',
+        'Fecha_Vencimiento',
+        'Tipo_Poliza',
+        'Código_Región',
+        'num_garantía',
+        'Número_Cis_Garantía',
+        'Moneda',
+        'Importe',
+        'Descripción de la Garantía'
+    ]
+
+    # Build a normalization helper (uppercase normalized form) for consistent lookups
+    @staticmethod
+    def _norm_key(name: str) -> str:
+        return HeaderNormalizer.normalize_headers([name])[0].upper()
+
+    # Base auto-map from normalized expected -> expected (with accents)
+    TDC_AT12_BASE_MAP: Dict[str, str] = {
+        HeaderNormalizer.normalize_headers([x])[0].upper(): x for x in TDC_AT12_EXPECTED
+    }
+
+    # Additional synonyms and common abbreviations found in TDC inputs
+    TDC_AT12_SYNONYMS: Dict[str, str] = {
+        # Abbreviations
+        'COD_BANCO': 'Código_Banco',
+        'CODIGO_BANCO': 'Código_Banco',
+        'NUM_PRESTAMO': 'Número_Préstamo',
+        'NUMERO_PRESTAMO': 'Número_Préstamo',
+        'NUM_RUC_GARANTIA': 'Número_Ruc_Garantía',
+        'NUMERO_RUC_GARANTIA': 'Número_Ruc_Garantía',
+        'ORIGEN_GARANTIA': 'Origen_Garantía',
+        'TIPO_GARANTIA': 'Tipo_Garantía',
+        'VALOR_GARANTIA': 'Valor_Garantía',
+        'CALIFICACION_EMISOR': 'Calificación_Emisor',
+        'CALIFICACION_EMISION': 'Calificación_Emisión',
+        'PAIS_EMISION': 'País_Emisión',
+        'FECHA_ULTIMA_ACTUALIZACION': 'Fecha_Última_Actualización',
+        'COD_REGION': 'Código_Región',
+        'NUM_GARANTIA': 'num_garantía',
+        'NUMERO_GARANTIA': 'num_garantía',
+        'NUM_CIS_GARANTIA': 'Número_Cis_Garantía',
+        'NUMERO_CIS_GARANTIA': 'Número_Cis_Garantía',
+        'DESCRIPCION_DE_LA_GARANTIA': 'Descripción de la Garantía',
+        # Direct pass-throughs in uppercase to be safe
+        'ID_FIDEICOMISO': 'Id_Fideicomiso',
+        'NOMBRE_FIDUCIARIA': 'Nombre_Fiduciaria',
+        'TIPO_FACILIDAD': 'Tipo_Facilidad',
+        'ID_DOCUMENTO': 'Id_Documento',
+        'NOMBRE_ORGANISMO': 'Nombre_Organismo',
+        'VALOR_INICIAL': 'Valor_Inicial',
+        'VALOR_PONDERADO': 'Valor_Ponderado',
+        'TIPO_INSTRUMENTO': 'Tipo_Instrumento',
+        'FECHA_VENCIMIENTO': 'Fecha_Vencimiento',
+        'TIPO_POLIZA': 'Tipo_Poliza',
+        'MONEDA': 'Moneda',
+        'IMPORTE': 'Importe',
+        'ACMON': 'ACMON',
+        'ACIMP2': 'ACIMP2',
+        'ACNGA': 'ACNGA',
+        'ACCIS': 'ACCIS',
+        'LIMITE': 'LIMITE',
+        'SALDO': 'SALDO',
+    }
+
+    # Merge base map and synonyms into final mapping dict for TDC
+    TDC_AT12_MAPPING: Dict[str, str] = {**TDC_AT12_BASE_MAP, **TDC_AT12_SYNONYMS}
+    
     @staticmethod
     def get_mapping_for_subtype(subtype: str) -> Union[List[str], Dict[str, str]]:
         """Get header mapping for a specific subtype.
@@ -36,6 +124,8 @@ class HeaderMapper:
         """
         if subtype == "AT02_CUENTAS":
             return HeaderMapper.AT02_CUENTAS_MAPPING.copy()
+        if subtype == "TDC_AT12":
+            return HeaderMapper.TDC_AT12_MAPPING.copy()
         return {}
     
     @staticmethod
@@ -55,7 +145,15 @@ class HeaderMapper:
             # For AT02_CUENTAS, directly replace with schema headers
             return mapping[:len(headers)]
         
-        # For other subtypes, normalize headers
+        if isinstance(mapping, dict) and mapping:
+            # For dict mappings (e.g., TDC_AT12), map by normalized key → expected (accented) header
+            mapped: List[str] = []
+            for h in headers:
+                key = HeaderMapper._norm_key(h)
+                mapped.append(mapping.get(key, HeaderNormalizer.normalize_headers([h])[0]))
+            return mapped
+        
+        # Fallback: normalized headers (no accents), uppercase for stability
         return [HeaderNormalizer.normalize_headers([header])[0].upper() for header in headers]
     
     @staticmethod
@@ -108,6 +206,30 @@ class HeaderMapper:
                 'total_headers': len(headers),
                 'direct_mappings': len(headers),
                 'normalized_mappings': 0,
+                'mappings': mappings_list
+            }
+        
+        if isinstance(mapping, dict) and mapping:
+            # Report dict-based mappings (e.g., TDC_AT12)
+            for header in headers:
+                key = HeaderMapper._norm_key(header)
+                if key in mapping:
+                    mappings_list.append({
+                        'original': header,
+                        'mapped': mapping[key],
+                        'method': 'dict'
+                    })
+                else:
+                    normalized = HeaderNormalizer.normalize_headers([header])[0]
+                    mappings_list.append({
+                        'original': header,
+                        'mapped': normalized,
+                        'method': 'normalized'
+                    })
+            return {
+                'total_headers': len(headers),
+                'direct_mappings': 0,
+                'normalized_mappings': len([m for m in mappings_list if m['method'] == 'normalized']),
                 'mappings': mappings_list
             }
         
