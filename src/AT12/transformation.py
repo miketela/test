@@ -1000,9 +1000,23 @@ class AT12TransformationEngine(TransformationEngine):
         incidences = []
         updates_applied = 0
         
+        def _to_num(x):
+            try:
+                s = str(x)
+                if s == '' or s.lower() == 'nan' or s.lower() == 'none':
+                    return 0.0
+                # Normalize Spanish decimal: remove thousands '.', replace decimal ',' with '.'
+                s = s.replace('.', '').replace(',', '.')
+                return float(s)
+            except Exception:
+                try:
+                    return float(x)
+                except Exception:
+                    return 0.0
+
         for idx, row in merged_df.iterrows():
-            saldo = row.get('saldo', 0)
-            nuevo_valor_garantia = row.get('nuevo_at_valor_garantia', 0)
+            saldo = _to_num(row.get('saldo', 0))
+            nuevo_valor_garantia = _to_num(row.get('nuevo_at_valor_garantia', 0))
             
             # Standardized incidence data
             incidence_data = {
@@ -1034,12 +1048,14 @@ class AT12TransformationEngine(TransformationEngine):
                 })
             else:
                 # Correct: Update main DataFrame
-                mask = df['Numero_Prestamo'] == row.get(join_key_valor, '')
+                mask = df['Numero_Prestamo'] == str(row.get(join_key_valor, ''))
                 if mask.any():
                     if 'at_valor_garantia' in df.columns:
-                        df.loc[mask, 'at_valor_garantia'] = nuevo_valor_garantia
+                        # Store back as string with comma decimal
+                        df.loc[mask, 'at_valor_garantia'] = f"{nuevo_valor_garantia:.2f}".replace('.', ',')
                     if 'at_valor_pond_garantia' in df.columns:
-                        df.loc[mask, 'at_valor_pond_garantia'] = row.get('nuevo_at_valor_pond_garantia', 0)
+                        vpond = _to_num(row.get('nuevo_at_valor_pond_garantia', 0))
+                        df.loc[mask, 'at_valor_pond_garantia'] = f"{vpond:.2f}".replace('.', ',')
                     updates_applied += 1
                 
                 incidences.append({

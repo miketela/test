@@ -680,10 +680,11 @@ class AT12Processor:
             source_data = {}
             for file_path in input_files:
                 try:
-                    df = pd.read_csv(file_path)
+                    # Read all columns as strings to preserve leading zeros and formats
+                    df = pd.read_csv(file_path, dtype=str, keep_default_na=False, low_memory=False, encoding_errors='ignore')
                 except Exception:
-                    # Fallback to UTF-8 with errors ignored
-                    df = pd.read_csv(file_path, encoding_errors='ignore')
+                    # Fallback without encoding_errors for older pandas
+                    df = pd.read_csv(file_path, dtype=str, keep_default_na=False, low_memory=False)
                 # Derive subtype from filename stem, e.g. BASE_AT12_YYYYMMDD__run-XXXX -> BASE_AT12
                 stem = file_path.stem
                 m = _re.match(r"^(.+)_\d{8}__run-\d+$", stem)
