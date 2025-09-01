@@ -1488,6 +1488,12 @@ class AT12TransformationEngine(TransformationEngine):
         fecha_str = df['Fecha_Vencimiento'].astype(str)
         
         # Find records with invalid years (> 2100 or < 1985)
+        # Track original values for export
+        try:
+            orig_series = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_series = None
+
         for idx in df.index:
             fecha_val = str(df.loc[idx, 'Fecha_Vencimiento'])
             if len(fecha_val) >= 4:
@@ -1496,15 +1502,15 @@ class AT12TransformationEngine(TransformationEngine):
                     if year > 2100 or year < 1985:
                         original_fecha = df.loc[idx, 'Fecha_Vencimiento']
                         df.loc[idx, 'Fecha_Vencimiento'] = '21001231'
-                    if orig_series is not None:
-                        orig_series.loc[idx] = original_fecha
-                    
-                    incidences.append({
-                        'Index': idx,
-                        'Original_Fecha_Vencimiento': original_fecha,
-                        'Corrected_Fecha_Vencimiento': '21001231',
-                        'Rule': 'FECHA_CANCELACION_ERRADA'
-                    })
+                        if orig_series is not None:
+                            orig_series.loc[idx] = original_fecha
+                        
+                        incidences.append({
+                            'Index': idx,
+                            'Original_Fecha_Vencimiento': original_fecha,
+                            'Corrected_Fecha_Vencimiento': '21001231',
+                            'Rule': 'FECHA_CANCELACION_ERRADA'
+                        })
                 except ValueError:
                     # Invalid date format, also correct
                     original_fecha = df.loc[idx, 'Fecha_Vencimiento']
