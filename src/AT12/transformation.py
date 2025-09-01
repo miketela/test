@@ -151,9 +151,9 @@ class AT12TransformationEngine(TransformationEngine):
                 result.incidence_files.append(out_path)
             # Log concise: RULE -> filename
             try:
-                self.logger.info(f"{rule_name} -> {out_path.name}")
+                self.logger.info(f"{rule_name} -> {out_path.name} ({len(out_df)} records)")
             except Exception:
-                self.logger.info(f"{rule_name} -> {out_path}")
+                self.logger.info(f"{rule_name} -> {out_path} ({len(out_df)} records)")
         except Exception as e:
             self.logger.warning(f"Failed to export error subset for {rule_name}: {e}")
 
@@ -1134,11 +1134,11 @@ class AT12TransformationEngine(TransformationEngine):
                 incidence_path = context.paths.incidencias_dir / incidence_filename
                 if self._save_dataframe_as_csv(incidences_df, incidence_path):
                     result.incidence_files.append(incidence_path)
-                    # Log concise: RULE -> filename
+                    # Log concise: RULE -> filename (row count)
                     try:
-                        self.logger.info(f"{subtype} -> {incidence_path.name}")
+                        self.logger.info(f"{subtype} -> {incidence_path.name} ({len(incidences_df)} records)")
                     except Exception:
-                        self.logger.info(f"{subtype} -> {incidence_path}")
+                        self.logger.info(f"{subtype} -> {incidence_path} ({len(incidences_df)} records)")
             except Exception as e:
                 self.logger.warning(f"Failed to export global incidence {subtype}: {e}")
     
