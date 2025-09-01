@@ -342,6 +342,25 @@ def action_explore(selected: List[Path]):
         print("Explore completed with warnings.")
     else:
         print("Explore failed.")
+        # Try to locate the per-run log file and show a short tail
+        try:
+            run_id = f"{year}{month:02d}"
+            log_dir = PROJECT_ROOT / "logs" / "AT12" / "explore"
+            if log_dir.exists():
+                candidates = [p for p in log_dir.glob(f"*{run_id}*.log") if p.is_file()]
+                if candidates:
+                    latest = max(candidates, key=lambda p: p.stat().st_mtime)
+                    print(f"See detailed log: {latest}")
+                    try:
+                        lines = latest.read_text(encoding="utf-8", errors="ignore").splitlines()
+                        tail = lines[-25:]
+                        print("Last 25 log lines:")
+                        for ln in tail:
+                            print("  " + ln)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
 
 def action_transform():
