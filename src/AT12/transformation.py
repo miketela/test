@@ -87,6 +87,20 @@ class AT12TransformationEngine(TransformationEngine):
             ]
         return df
 
+    def _normalize_join_key(self, s: pd.Series) -> pd.Series:
+        """Normalize keys for joins only (non-destructive): digits-only and strip leading zeros.
+
+        This improves matches where one side has formatting differences (spaces, hyphens, left padding).
+        Does not modify original DataFrame columns.
+        """
+        try:
+            out = s.astype(str).str.replace(r"\D", "", regex=True)
+            out = out.str.lstrip('0')
+            out = out.where(out != '', '0')
+            return out
+        except Exception:
+            return s.astype(str)
+
     def _enrich_tdc_0507(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply constants and derived fields for Tipo_Garantia = '0507'."""
         if df is None or df.empty:
@@ -140,8 +154,10 @@ class AT12TransformationEngine(TransformationEngine):
             out_df = df.loc[mask].copy()
             if out_df.empty:
                 return
-            # Simplified naming without INC_ prefix: [RULE]_[YYYYMMDD].csv
-            filename = f"{rule_name}_{context.period}.csv"
+            # Include subtype to avoid overwriting when multiple subtypes export the same rule
+            # Pattern: [RULE]_[SUBTYPE]_[YYYYMMDD].csv
+            safe_subtype = subtype or 'BASE_AT12'
+            filename = f"{rule_name}_{safe_subtype}_{context.period}.csv"
             out_path = context.paths.incidencias_dir / filename
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -334,7 +350,7 @@ class AT12TransformationEngine(TransformationEngine):
         
         # This method requires source_data for AT03_CREDITOS lookup
         if source_data:
-            df = self._apply_fecha_avaluo_correction(df, context, source_data)
+            df = self._apply_fecha_avaluo_correction(df, context, source_data, subtype=subtype)
         
         df = self._apply_inmuebles_sin_poliza_correction(df, context, source_data)
         df = self._apply_inmuebles_sin_finca_correction(df, context)
@@ -1427,11 +1443,15 @@ class AT12TransformationEngine(TransformationEngine):
             self._store_incidences('ERROR_0301', incidences, context)
             self.logger.info(f"Applied Error 0301 correction/incidences to {len(incidences)} records")
 
-        # Export a CSV with original columns for rows that had the 0301 condition
+        # Export only rows where Id_Documento actually changed (avoid exporting all 0301)
         try:
-            if mask_0301.any():
-                original_columns = {'Id_Documento': orig_id_series} if orig_id_series is not None else None
-                self._export_error_subset(df, mask_0301, subtype or 'BASE_AT12', 'ERROR_0301', context, result, original_columns=original_columns)
+            if mask_0301.any() and orig_id_series is not None:
+                current_id = df['Id_Documento'].astype(str)
+                orig_id = orig_id_series.astype(str)
+                changed_mask = mask_0301 & (current_id != orig_id)
+                if changed_mask.any():
+                    original_columns = {'Id_Documento': orig_id_series}
+                    self._export_error_subset(df, changed_mask, subtype or 'BASE_AT12', 'ERROR_0301', context, result, original_columns=original_columns)
         except Exception:
             pass
 
@@ -1540,7 +1560,7 @@ class AT12TransformationEngine(TransformationEngine):
         
         return df
     
-    def _apply_fecha_avaluo_correction(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    def _apply_fecha_avaluo_correction(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame], subtype: str = "") -> pd.DataFrame:
         """1.5. Fecha Avalúo Errada: Correct inconsistent appraisal update dates."""
         if 'Fecha_Ultima_Actualizacion' not in df.columns or 'Numero_Prestamo' not in df.columns:
             return df
@@ -1583,6 +1603,17 @@ class AT12TransformationEngine(TransformationEngine):
         except Exception:
             orig_series_avaluo = None
 
+        # Build normalized key map for AT03 for robust join
+        try:
+            at03_df = at03_df.copy()
+            at03_df['_norm_key'] = self._normalize_join_key(at03_df['num_cta'])
+            at03_map = at03_df.dropna(subset=['_norm_key'])
+            at03_map = at03_map.drop_duplicates('_norm_key', keep='first').set_index('_norm_key')
+        except Exception:
+            at03_map = None
+
+        base_norm_keys = self._normalize_join_key(df['Numero_Prestamo'])
+
         for idx in df.index:
             fecha_val = str(df.loc[idx, 'Fecha_Ultima_Actualizacion'])
             numero_prestamo = df.loc[idx, 'Numero_Prestamo']
@@ -1603,11 +1634,25 @@ class AT12TransformationEngine(TransformationEngine):
             
             if needs_correction:
                 candidates += 1
-                # JOIN with AT03_CREDITOS to get fec_ini_prestamo
-                at03_match = at03_df[at03_df['num_cta'] == numero_prestamo]
-                if not at03_match.empty and 'fec_ini_prestamo' in at03_match.columns:
+                # JOIN with AT03_CREDITOS using normalized key; fallback to exact match
+                new_fecha = None
+                matched = False
+                if at03_map is not None:
+                    key_norm = base_norm_keys.iloc[idx]
+                    if isinstance(key_norm, str) and key_norm in at03_map.index:
+                        try:
+                            new_fecha = at03_map.at[key_norm, 'fec_ini_prestamo']
+                            matched = True
+                        except Exception:
+                            matched = False
+                if not matched:
+                    at03_match = at03_df[at03_df['num_cta'] == numero_prestamo]
+                    if not at03_match.empty and 'fec_ini_prestamo' in at03_match.columns:
+                        new_fecha = at03_match.iloc[0]['fec_ini_prestamo']
+                        matched = True
+
+                if matched:
                     original_fecha = df.loc[idx, 'Fecha_Ultima_Actualizacion']
-                    new_fecha = at03_match.iloc[0]['fec_ini_prestamo']
                     df.loc[idx, 'Fecha_Ultima_Actualizacion'] = new_fecha
                     if orig_series_avaluo is not None:
                         orig_series_avaluo.loc[idx] = original_fecha
@@ -1633,7 +1678,7 @@ class AT12TransformationEngine(TransformationEngine):
                 if idxs:
                     mask_export = df.index.isin(idxs)
                     original_columns = {'Fecha_Ultima_Actualizacion': orig_series_avaluo} if orig_series_avaluo is not None else None
-                    self._export_error_subset(df, mask_export, 'BASE_AT12', 'FECHA_AVALUO_ERRADA', context, None, original_columns=original_columns)
+                    self._export_error_subset(df, mask_export, subtype or 'BASE_AT12', 'FECHA_AVALUO_ERRADA', context, None, original_columns=original_columns)
             except Exception:
                 pass
         
@@ -1685,10 +1730,13 @@ class AT12TransformationEngine(TransformationEngine):
                 hip_df = source_data['POLIZA_HIPOTECAS_AT12']
                 # Columnas esperadas: numcred, seguro_incendio
                 if 'numcred' in hip_df.columns and 'seguro_incendio' in hip_df.columns:
-                    # Preparar mapa numcred -> seguro_incendio
-                    map_seguro = hip_df.set_index('numcred')['seguro_incendio']
+                    # Preparar mapa numcred(normalizado) -> seguro_incendio
+                    hip_df = hip_df.copy()
+                    hip_df['_norm_key'] = self._normalize_join_key(hip_df['numcred'])
+                    map_seguro = hip_df.set_index('_norm_key')['seguro_incendio']
+                    base_norm = self._normalize_join_key(df['Numero_Prestamo'])
                     for idx in df[mask_0207].index:
-                        key = df.loc[idx, 'Numero_Prestamo']
+                        key = base_norm.loc[idx]
                         if pd.isna(key):
                             continue
                         val = map_seguro.get(key, None)
@@ -1829,9 +1877,12 @@ class AT12TransformationEngine(TransformationEngine):
             else:
                 autos_df = source_data['GARANTIA_AUTOS_AT12']
                 if 'numcred' in autos_df.columns and 'num_poliza' in autos_df.columns:
-                    map_poliza = autos_df.set_index('numcred')['num_poliza']
+                    autos_df = autos_df.copy()
+                    autos_df['_norm_key'] = self._normalize_join_key(autos_df['numcred'])
+                    map_poliza = autos_df.set_index('_norm_key')['num_poliza']
+                    base_norm = self._normalize_join_key(df['Numero_Prestamo'])
                     for idx in df[mask].index:
-                        key = df.loc[idx, 'Numero_Prestamo']
+                        key = base_norm.loc[idx]
                         if pd.isna(key):
                             continue
                         val = map_poliza.get(key, None)
