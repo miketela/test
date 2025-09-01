@@ -36,7 +36,7 @@ try:
     from InquirerPy import inquirer as _inq
     HAS_INQUIRER = True
 except Exception:
-    HAS_INQUIRER = False
+HAS_INQUIRER = False
 
 
 def prompt_checkbox(message: str, choices: List[str], default: Optional[List[str]] = None) -> List[str]:
@@ -57,6 +57,14 @@ def prompt_text(message: str, default: Optional[str] = None) -> str:
     if HAS_INQUIRER:
         return _inq.text(message=message + (f" [{default}]" if default else ""), default=default or "").execute().strip()
     return prompt(message, default)
+
+def prompt_confirm(message: str, default: bool = False) -> bool:
+    if HAS_INQUIRER:
+        return _inq.confirm(message=message, default=default).execute()
+    ans = input(f"{message} [{'Y/n' if default else 'y/N'}]: ").strip().lower()
+    if not ans:
+        return default
+    return ans in {"y", "yes", "s", "si", "sí"}
 
 
 def prompt_select(message: str, choices: List[str], default: Optional[str] = None) -> str:
@@ -412,6 +420,47 @@ def action_report():
     if rc != 0:
         print("Report generation failed.")
 
+def _collect_output_files() -> List[Path]:
+    """Collect output files for cleanup (testing only)."""
+    targets: List[Path] = []
+    base = PROJECT_ROOT / "data" / "processed" / "transforms" / "AT12"
+    # Incidencias, procesados, consolidated, state
+    for sub in ["incidencias", "procesados", "consolidated", "state"]:
+        d = base / sub
+        if d.exists():
+            targets.extend(sorted(d.glob("**/*")))
+    # Metrics JSONs
+    mdir = PROJECT_ROOT / "metrics"
+    if mdir.exists():
+        targets.extend(sorted(mdir.glob("*.json")))
+    return [p for p in targets if p.is_file()]
+
+def action_clean():
+    """Delete output artifacts (testing helper)."""
+    print("\n[Testing] Clean outputs: transforms/AT12 + metrics")
+    files = _collect_output_files()
+    if not files:
+        print("Nothing to delete.")
+        return
+    # Show a short preview
+    preview = [str(p.relative_to(PROJECT_ROOT)) for p in files[:10]]
+    print("Files to delete (preview):")
+    for p in preview:
+        print(f"  - {p}")
+    if len(files) > 10:
+        print(f"  ... and {len(files) - 10} more")
+    if not prompt_confirm("Proceed to delete these files?", default=False):
+        print("Clean cancelled.")
+        return
+    removed = 0
+    for p in files:
+        try:
+            p.unlink()
+            removed += 1
+        except Exception:
+            pass
+    print(f"Removed {removed} file(s).")
+
 
 def main():
     print("AT12 Terminal Interface")
@@ -421,6 +470,7 @@ def main():
         "Explore (pick files)",
         "Transform (from last explore run)",
         "Report (choose metrics JSON)",
+        "Clean (delete outputs - testing)",  # TODO: remove before release
         "Exit",
     ]
     while True:
@@ -444,6 +494,8 @@ def main():
             action_transform()
         elif selection.startswith("Report"):
             action_report()
+        elif selection.startswith("Clean"):
+            action_clean()
         else:
             break
 
