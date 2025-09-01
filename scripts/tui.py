@@ -36,7 +36,7 @@ try:
     from InquirerPy import inquirer as _inq
     HAS_INQUIRER = True
 except Exception:
-HAS_INQUIRER = False
+    HAS_INQUIRER = False
 
 
 def prompt_checkbox(message: str, choices: List[str], default: Optional[List[str]] = None) -> List[str]:
