@@ -263,7 +263,7 @@ class AT12TransformationEngine(TransformationEngine):
     
     def _stage1_initial_cleansing(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame], subtype: str = "") -> pd.DataFrame:
         """Stage 1: Initial Data Cleansing and Formatting"""
-        return self._phase1_error_correction(df, context, result, source_data)
+        return self._phase1_error_correction(df, context, result, source_data, subtype=subtype)
 
     def _stage2_enrichment(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame], subtype: str = "") -> pd.DataFrame:
         """Stage 2: Data Enrichment and Generation from Auxiliary Sources"""
@@ -348,9 +348,9 @@ class AT12TransformationEngine(TransformationEngine):
         df = self._apply_coma_finca_empresa_correction(df, context)
         df = self._apply_fecha_cancelacion_correction(df, context)
         
-        # This method requires source_data for AT03_CREDITOS lookup
-        if source_data:
-            df = self._apply_fecha_avaluo_correction(df, context, source_data, subtype=subtype)
+        # This method requires source_data for AT03_CREDITOS lookup, and applies only for BASE_AT12
+        if source_data and (subtype == 'BASE_AT12' or subtype == '' or subtype is None):
+            df = self._apply_fecha_avaluo_correction(df, context, source_data, subtype=subtype or 'BASE_AT12')
         
         df = self._apply_inmuebles_sin_poliza_correction(df, context, source_data)
         df = self._apply_inmuebles_sin_finca_correction(df, context)
