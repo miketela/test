@@ -343,7 +343,7 @@ class AT12TransformationEngine(TransformationEngine):
         self.logger.info("Executing Phase 1: Initial Data Cleansing and Formatting")
         
         # Apply all error correction rules in sequence
-        df = self._apply_eeor_tabular_cleaning(df, context)
+        df = self._apply_eeor_tabular_cleaning(df, context, subtype=subtype)
         df = self._apply_error_0301_correction(df, context, subtype=subtype, result=result)
         df = self._apply_coma_finca_empresa_correction(df, context)
         df = self._apply_fecha_cancelacion_correction(df, context)
@@ -1166,25 +1166,27 @@ class AT12TransformationEngine(TransformationEngine):
         - Per-rule, full-row subsets (INC_*) ya se exportan durante cada regla.
         - EEOO_TABULAR solo para validaciones globales de base (whitelist).
         """
-        allowed_global = {'EEOR_TABULAR', 'FUERA_CIERRE_EXCEL_GENERATION'}
-
-        for subtype, incidences in self.incidences_data.items():
-            if not incidences or subtype not in allowed_global:
+        # Allow global exports for FUERA_CIERRE_EXCEL_GENERATION and any EEOR_TABULAR* variant
+        for rule_key, incidences in self.incidences_data.items():
+            if not incidences:
+                continue
+            is_allowed = (rule_key == 'FUERA_CIERRE_EXCEL_GENERATION') or rule_key.startswith('EEOR_TABULAR')
+            if not is_allowed:
                 continue
             try:
                 incidences_df = pd.DataFrame(incidences)
                 # Simplified naming without INC_ prefix: [RULE]_[YYYYMMDD].csv
-                incidence_filename = f"{subtype}_{context.period}.csv"
+                incidence_filename = f"{rule_key}_{context.period}.csv"
                 incidence_path = context.paths.incidencias_dir / incidence_filename
                 if self._save_dataframe_as_csv(incidences_df, incidence_path):
                     result.incidence_files.append(incidence_path)
                     # Log concise: RULE -> filename (row count)
                     try:
-                        self.logger.info(f"{subtype} -> {incidence_path.name} ({len(incidences_df)} records)")
+                        self.logger.info(f"{rule_key} -> {incidence_path.name} ({len(incidences_df)} records)")
                     except Exception:
-                        self.logger.info(f"{subtype} -> {incidence_path} ({len(incidences_df)} records)")
+                        self.logger.info(f"{rule_key} -> {incidence_path} ({len(incidences_df)} records)")
             except Exception as e:
-                self.logger.warning(f"Failed to export global incidence {subtype}: {e}")
+                self.logger.warning(f"Failed to export global incidence {rule_key}: {e}")
     
     def _generate_processed_files(self, context: TransformationContext, 
                                 transformed_data: Dict[str, pd.DataFrame], 
@@ -1270,7 +1272,7 @@ class AT12TransformationEngine(TransformationEngine):
             self.logger.error(error_msg)
     
     # Stage 1 Correction Methods
-    def _apply_eeor_tabular_cleaning(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
+    def _apply_eeor_tabular_cleaning(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "") -> pd.DataFrame:
         """1.1. EEOR TABULAR: Whitespace Errors - Remove unnecessary spaces from text fields."""
         text_columns = df.select_dtypes(include=['object']).columns
         incidences = []
@@ -1329,14 +1331,20 @@ class AT12TransformationEngine(TransformationEngine):
                         })
         
         if incidences:
-            self._store_incidences('EEOR_TABULAR', incidences, context)
+            # Store by rule name including subtype to avoid overwrites across subtypes
+            rule_key = 'EEOR_TABULAR'
+            if subtype:
+                rule_key = f"EEOR_TABULAR_{subtype}"
+            self._store_incidences(rule_key, incidences, context)
             self.logger.info(f"Applied EEOR TABULAR cleaning to {len(incidences)} records across {len(text_columns)} text columns")
             # Export full-row subset for rows modified by EEOR cleaning
             try:
                 if overall_mask is not None and overall_mask.any():
                     # Build mapping of original values for changed columns only
                     original_columns = {c: original_df[c] for c in changed_cols if c in original_df.columns}
-                    self._export_error_subset(df, overall_mask, 'BASE_AT12', 'EEOR_TABULAR', context, None, original_columns=original_columns)
+                    # Export per-subtype to avoid mixing across types
+                    target_subtype = subtype or 'BASE_AT12'
+                    self._export_error_subset(df, overall_mask, target_subtype, 'EEOR_TABULAR', context, None, original_columns=original_columns)
             except Exception:
                 pass
         

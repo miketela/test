@@ -567,9 +567,9 @@ class AT12Processor:
                 # Calculate metrics
                 file_metrics = self.metrics_calculator.calculate_file_metrics(file_path_obj)
                 all_metrics[filename] = asdict(file_metrics)
-                total_records += file_metrics.total_records
+                total_records += file_metrics.row_count
                 
-                self.logger.info(f"  📊 {filename}: {file_metrics.total_records:,} records")
+                self.logger.info(f"  📊 {filename}: {file_metrics.row_count:,} records")
                 
             except Exception as e:
                 errors.append(f"{file_path}: Analysis failed - {str(e)}")

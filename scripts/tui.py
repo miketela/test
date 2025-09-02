@@ -25,6 +25,10 @@ TMP_SOURCE_DIR = PROJECT_ROOT / ".tmp_source_run"
 TMP_RAW_DIR = PROJECT_ROOT / ".tmp_raw_run"
 METRICS_DIR = PROJECT_ROOT / "metrics"
 
+# Persist simple state across actions within the same TUI session
+LAST_SELECTED_SUBTYPES: Optional[Set[str]] = None
+LAST_RUN_ID: Optional[str] = None
+
 
 def prompt(msg: str, default: Optional[str] = None) -> str:
     sfx = f" [{default}]" if default else ""
@@ -41,9 +45,25 @@ except Exception:
 
 def prompt_checkbox(message: str, choices: List[str], default: Optional[List[str]] = None) -> List[str]:
     if HAS_INQUIRER:
-        return _inq.checkbox(message=message, choices=choices, default=default or [],
-                             transformer=lambda r: f"{len(r)} selected",
-                             validate=lambda r: True, instruction="Space to toggle, Enter to accept").execute()
+        # Add an explicit "Select All" option for clarity
+        all_choice = {'name': '<< Select All >>', 'value': '__ALL__'}
+        payload = [all_choice] + [{'name': c, 'value': c} for c in choices]
+        # If default equals all choices, preselect the select-all sentinel
+        _default = default or []
+        if default and set(default) == set(choices):
+            _default = ['__ALL__']
+        selected = _inq.checkbox(
+            message=message,
+            choices=payload,
+            default=_default,
+            transformer=lambda r: f"{len([x for x in r if x != '__ALL__']) if '__ALL__' not in r else len(choices)} selected",
+            validate=lambda r: True,
+            instruction="Space to toggle, Enter to accept"
+        ).execute()
+        # Expand select-all sentinel
+        if isinstance(selected, list) and '__ALL__' in selected:
+            return choices
+        return selected
     # Fallback: show indexed list and parse indices
     print(message)
     for i, c in enumerate(choices, 1):
@@ -141,6 +161,8 @@ def pick_files(files: List[Path]) -> List[Path]:
         return []
     names = [p.name for p in files]
     selected_names = prompt_checkbox("Select files (space to toggle):", names, default=names)
+    if isinstance(selected_names, list) and any(name == '__ALL__' for name in selected_names):
+        selected_names = names
     chosen = [p for p in files if p.name in selected_names]
     print("Selected:")
     for p in chosen:
@@ -344,6 +366,16 @@ def action_explore(selected: List[Path]):
         print("Explore failed.")
         # Try to locate the per-run log file and show a short tail
         _show_run_log_tail("explore", f"{year}{month:02d}")
+        return
+
+    # Cache last selection for streamlined transform
+    global LAST_SELECTED_SUBTYPES, LAST_RUN_ID
+    LAST_SELECTED_SUBTYPES = {infer_subtype(p.name) for p in selected}
+    LAST_RUN_ID = f"{year}{month:02d}"
+    try:
+        print(f"Saved selection for next Transform (run {LAST_RUN_ID}): {', '.join(sorted(LAST_SELECTED_SUBTYPES))}")
+    except Exception:
+        pass
 
 def _show_run_log_tail(command: str, run_id: str, lines: int = 25) -> None:
     """Utility: show tail of the most recent log for a command/run_id."""
@@ -370,6 +402,36 @@ def _show_run_log_tail(command: str, run_id: str, lines: int = 25) -> None:
 
 def action_transform():
     # New flow: pick files across all runs, then infer period from selection
+    global LAST_SELECTED_SUBTYPES, LAST_RUN_ID
+    # Fast-path: if we have a recent explore selection, reuse it
+    if LAST_RUN_ID and LAST_SELECTED_SUBTYPES:
+        try:
+            year = int(LAST_RUN_ID[:4])
+            month = int(LAST_RUN_ID[4:6])
+            available = list_raw_run_files(year, month)
+            chosen = [p for p in available if infer_subtype(p.name) in LAST_SELECTED_SUBTYPES]
+            if chosen:
+                tmp_raw = prepare_tmp_raw(chosen)
+                try:
+                    print(f"Using previous selection (subtypes: {', '.join(sorted(LAST_SELECTED_SUBTYPES))})")
+                except Exception:
+                    pass
+                print(f"Using temporary RAW_DIR: {tmp_raw}")
+                rc = run_cmd([sys.executable, str(PROJECT_ROOT / "main.py"),
+                              "transform", "--atoms", "AT12", "--year", str(year), "--month", str(month)],
+                             env_overrides={"SBP_DATA_RAW_DIR": str(tmp_raw)})
+                if rc == 0:
+                    print("Transform completed.")
+                elif rc == 2:
+                    print("Transform completed with warnings.")
+                else:
+                    print("Transform failed.")
+                    _show_run_log_tail("transform", f"{year}{month:02d}")
+                return
+        except Exception:
+            # Fall back to interactive flow
+            pass
+
     all_available = list_all_raw_files()
     if not all_available:
         print("No files found in data/raw (no __run-*.csv files).")

@@ -156,9 +156,11 @@ def main():
                     result = processor.transform(period[0], period[1], f"{period[0]}{period[1]:02d}")
                 
                 # Update exit code based on result
-                if not result.success or result.errors:
+                # Treat only result.success == False as failure (1)
+                # If there are errors but success == True, downgrade to warnings (2)
+                if not result.success:
                     exit_code = 1
-                elif result.warnings and exit_code == 0:
+                elif (result.errors or result.warnings) and exit_code == 0:
                     exit_code = 2
                     
                 logger.info(f"Processing result: {result.message}")
