@@ -177,7 +177,7 @@ This stage enriches the main dataset by joining it with auxiliary files and appl
         *   **Key:** `Id_Documento` + `Tipo_Facilidad`.
         *   **Sequential Assignment:** Start at 855,500. First occurrence of a key gets a new number; subsequent occurrences of the same key reuse it.
         *   **Special:** If `Tipo_Facilidad` changes for the same `Id_Documento`, assign the next sequential number (covered by the key definition).
-        *   **Error Condition:** If `Numero_Prestamo` repeats for the same (`Id_Documento`, `Tipo_Facilidad`), flag as error and include in inconsistency export `INC_LOAN_NUMBER_REPEATED_TDC_AT12_[YYYYMMDD].csv`.
+        *   **Error Condition:** If `Numero_Prestamo` repeats for the same (`Id_Documento`, `Tipo_Facilidad`), it is handled as part of the transformation (no separate incidence file). The condition is logged for traceability.
     2.  **Date Mapping (Updated):**
         *   `JOIN` with `AT02_CUENTAS` using `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02).
         *   Update `Fecha_Última_Actualización` from `Fecha_inicio` (AT02).
@@ -187,7 +187,7 @@ This stage enriches the main dataset by joining it with auxiliary files and appl
         *   Detect duplicates excluding `Numero_Prestamo` using key priority:
             - (`Identificacion_cliente`, `Identificacion_Cuenta`, `Tipo_Facilidad`) if available; otherwise
             - (`Id_Documento`, `Tipo_Facilidad`).
-        *   Export full-row CSV with affected records: `INC_REPEATED_CARD_TDC_AT12_[YYYYMMDD].csv` (legacy `TARJETA_REPETIDA_TDC_AT12_[YYYYMMDD].csv` maintained for compatibility).
+        *   Export full-row CSV with affected records: `INC_REPEATED_CARD_TDC_AT12_[YYYYMMDD].csv`.
 
 **2.2. `SOBREGIRO_AT12` (Overdrafts) Processing**
 *   **Objective:** To enrich the overdraft atom with dates from the source account.

@@ -394,10 +394,10 @@ class AT12TransformationEngine(TransformationEngine):
     
     def _process_tdc_data(self, df: pd.DataFrame, context: TransformationContext, 
                         result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Process TDC (Tarjeta de Crédito) specific data (minimal: number + date mapping + duplicates)."""
+        """Process TDC (Tarjeta de Crédito) specific data (guarantee number + date mapping + duplicates)."""
         self.logger.info("Processing TDC_AT12 data - Stage 2")
 
-        # Step 1: Generate Número_Garantía (legacy, in-memory)
+        # Step 1: Generate Número_Garantía (in-process, no incidences)
         df = self._generate_numero_garantia_tdc(df, context)
 
         # Step 2: Date Mapping with AT02_CUENTAS
@@ -424,7 +424,7 @@ class AT12TransformationEngine(TransformationEngine):
           2) ('Id_Documento','Tipo_Facilidad')
 
         Records sharing the same key are considered 'Tarjeta_repetida'.
-        Export full-row subset to legacy TARJETA_REPETIDA_<PERIODO>.csv and also to new INC_REPEATED_CARD_TDC_AT12_<PERIODO>.csv.
+        Export full-row subset to new INC_REPEATED_CARD_TDC_AT12_<PERIODO>.csv (legacy TARJETA_REPETIDA removed).
         """
         # Choose key according to available columns
         if all(c in df.columns for c in ['Identificacion_cliente', 'Identificacion_Cuenta', 'Tipo_Facilidad']):
@@ -458,16 +458,11 @@ class AT12TransformationEngine(TransformationEngine):
                 payload = [{
                     'key': key_series.loc[i]
                 } for i in df[dup_mask].index]
-                # Store both legacy and new rule keys
-                self._store_incidences('TARJETA_REPETIDA', payload, context)
+                # Store only new rule
                 self._store_incidences('INC_REPEATED_CARD', payload, context)
             except Exception:
                 pass
 
-            try:
-                self._export_error_subset(df, dup_mask, 'TDC_AT12', 'TARJETA_REPETIDA', context, None)
-            except Exception as e:
-                self.logger.warning(f"Failed to export TARJETA_REPETIDA subset: {e}")
             try:
                 self._export_error_subset(df, dup_mask, 'TDC_AT12', 'INC_REPEATED_CARD', context, None)
             except Exception as e:
@@ -554,9 +549,12 @@ class AT12TransformationEngine(TransformationEngine):
         return df
     
     def _generate_numero_garantia_tdc(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
-        """Generate unique guarantee codes for TDC_AT12 according to original Stage 2.1 spec.
+        """Generate unique guarantee codes for TDC_AT12 (updated context).
 
-        Non-persistent, in-memory assignment starting at 855500. Key uses Id_Documento+Tipo_Facilidad.
+        - Clear Numero_Garantia and sort by Id_Documento ascending.
+        - Key: (Id_Documento, Tipo_Facilidad).
+        - Sequential from 855500; reuse for repeated keys.
+        - No incidences emitted; handled as part of transformation.
         """
         self.logger.info("Generating Número_Garantía for TDC_AT12")
 
@@ -586,20 +584,12 @@ class AT12TransformationEngine(TransformationEngine):
             if unique_key not in unique_keys:
                 unique_keys[unique_key] = next_number
                 df.at[idx, 'Numero_Garantia'] = next_number
-                self._add_incidence(
-                    incidence_type=IncidenceType.DATA_QUALITY,
-                    severity=IncidenceSeverity.MEDIUM,
-                    rule_id='TDC_NUMERO_GARANTIA_NEW_ASSIGNMENT',
-                    description=f'New guarantee number {next_number} assigned',
-                    data={'record_index': int(idx), 'column_name': 'Numero_Garantia', 'corrected_value': str(next_number)}
-                )
                 incidences.append({
                     'Index': idx,
                     'Id_Documento': row.get('Id_Documento', ''),
                     'Numero_Prestamo': row.get('Numero_Prestamo', ''),
                     'Tipo_Facilidad': row.get('Tipo_Facilidad', ''),
-                    'Numero_Garantia_Assigned': next_number,
-                    'Action': 'New guarantee number assigned'
+                    'Numero_Garantia_Assigned': next_number
                 })
                 next_number += 1
             else:
@@ -609,12 +599,10 @@ class AT12TransformationEngine(TransformationEngine):
                     'Id_Documento': row.get('Id_Documento', ''),
                     'Numero_Prestamo': row.get('Numero_Prestamo', ''),
                     'Tipo_Facilidad': row.get('Tipo_Facilidad', ''),
-                    'Numero_Garantia_Assigned': unique_keys[unique_key],
-                    'Action': 'Existing guarantee number reused'
+                    'Numero_Garantia_Assigned': unique_keys[unique_key]
                 })
 
-        if incidences:
-            self._store_incidences('TDC_NUMERO_GARANTIA_GENERATION', incidences, context)
+        # Log only (no incidences for Numero_Garantia generation)
         self.logger.info(f"Generated {len(unique_keys)} unique guarantee numbers for TDC_AT12")
         
         # Error condition: repeated Numero_Prestamo for same (Id_Documento, Tipo_Facilidad)
@@ -625,28 +613,9 @@ class AT12TransformationEngine(TransformationEngine):
                     df.duplicated(subset=['Id_Documento', 'Tipo_Facilidad', 'Numero_Prestamo'], keep=False)
                 )
                 if dup_mask.any():
-                    payload = []
-                    for i in df[dup_mask].index:
-                        payload.append({
-                            'Index': int(i),
-                            'Id_Documento': df.at[i, 'Id_Documento'],
-                            'Numero_Prestamo': df.at[i, 'Numero_Prestamo'],
-                            'Tipo_Facilidad': df.at[i, 'Tipo_Facilidad'],
-                        })
-                        try:
-                            self._add_incidence(
-                                incidence_type=IncidenceType.BUSINESS_RULE_VIOLATION,
-                                severity=IncidenceSeverity.HIGH,
-                                rule_id='INC_LOAN_NUMBER_REPEATED',
-                                description='Loan_Number repeats for (Id_Documento, Tipo_Facilidad)',
-                                data={'record_index': int(i)}
-                            )
-                        except Exception:
-                            pass
-                    # Store and export under new rule name
-                    self._store_incidences('INC_LOAN_NUMBER_REPEATED', payload, context)
+                    count = int(dup_mask.sum())
                     try:
-                        self._export_error_subset(df, dup_mask, 'TDC_AT12', 'INC_LOAN_NUMBER_REPEATED', context, None)
+                        self.logger.warning(f"TDC: {count} repeated Numero_Prestamo within (Id_Documento, Tipo_Facilidad) detected; handled in-process (no incidence export)")
                     except Exception:
                         pass
         except Exception:
@@ -721,8 +690,7 @@ class AT12TransformationEngine(TransformationEngine):
         # Drop helper columns
         merged.drop(columns=[c for c in merged.columns if c in ['_key_tdc', '_key_at02', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']], inplace=True, errors='ignore')
 
-        if incidences:
-            self._store_incidences('TDC_DATE_MAPPING', incidences, context)
+        # Log only (no incidences for date mapping in TDC)
         self.logger.info(f"Applied date mapping to {len(incidences)} out of {original_count} TDC records")
 
         return merged
