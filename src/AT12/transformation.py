@@ -526,7 +526,13 @@ class AT12TransformationEngine(TransformationEngine):
         for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe'):
             num_col = col + '__num'
             if num_col in df.columns:
-                target = 'Valor_Ponderado' if col == 'valor_ponderado' else ('Valor_Garantia' if col in ('Valor_Garantia', 'Valor_Garantía') else col)
+                # Keep SOBREGIRO schema exact: prefer 'valor_ponderado' (lowercase) over 'Valor_Ponderado'
+                if col == 'valor_ponderado':
+                    target = 'valor_ponderado'
+                elif col in ('Valor_Garantia', 'Valor_Garantía'):
+                    target = 'Valor_Garantia'
+                else:
+                    target = col
                 df[target] = self._format_money_comma(df[num_col])
         if 'Importe__num' in df.columns:
             df['Importe'] = self._format_money_comma(df['Importe__num'])
@@ -808,12 +814,14 @@ class AT12TransformationEngine(TransformationEngine):
 
         return merged
     
-    def _apply_date_mapping_sobregiro(self, df: pd.DataFrame, context: TransformationContext,
+    def _apply_date_mapping_sobregiro(self, df: pd.DataFrame, context: TransformationContext, 
                                      source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """Apply date mapping for SOBREGIRO_AT12 using AT02_CUENTAS.
 
-        Maps Fecha_Apertura from AT02.Fecha_proceso and Fecha_Cancelacion from AT02.Fecha_Vencimiento
-        when available. Falls back to original values without relying on pandas suffixes.
+        Update Fecha_Ultima_Actualizacion from AT02.Fecha_proceso and Fecha_Vencimiento from
+        AT02.Fecha_Vencimiento using a robust join. Prefer single-key join on Id_Documento ↔
+        identificacion_de_cuenta (normalized) to mirror TDC logic. Fallback to dual-key join
+        (Identificacion_cliente, Identificacion_Cuenta) if present.
         """
         self.logger.info("Applying date mapping for SOBREGIRO_AT12")
 
@@ -823,42 +831,71 @@ class AT12TransformationEngine(TransformationEngine):
 
         at02_df = source_data['AT02_CUENTAS']
 
-        # Required keys and columns
-        keys = ['Identificacion_cliente', 'Identificacion_Cuenta']
+        # Target columns present in SOBREGIRO
         base_date_cols = []
-        # Prefer schema-aligned columns for SOBREGIRO
         if 'Fecha_Ultima_Actualizacion' in df.columns:
             base_date_cols.append('Fecha_Ultima_Actualizacion')
         if 'Fecha_Vencimiento' in df.columns:
             base_date_cols.append('Fecha_Vencimiento')
 
-        missing_keys_df = [k for k in keys if k not in df.columns]
-        missing_keys_at02 = [k for k in keys if k not in at02_df.columns]
-        missing_at02_dates = [c for c in ['Fecha_proceso', 'Fecha_Vencimiento'] if c not in at02_df.columns]
-
-        if missing_keys_df or missing_keys_at02 or (not base_date_cols and missing_at02_dates):
+        # Resolve join mode
+        join_mode = None
+        if 'Id_Documento' in df.columns and 'Identificacion_Cuenta' in at02_df.columns:
+            join_mode = 'single_key'
+        elif all(c in df.columns for c in ['Identificacion_cliente', 'Identificacion_Cuenta']) and \
+             all(c in at02_df.columns for c in ['Identificacion_cliente', 'Identificacion_Cuenta']):
+            join_mode = 'dual_key'
+        else:
             self.logger.error(
-                f"Missing columns for SOBREGIRO mapping. DF keys missing: {missing_keys_df}, "
-                f"AT02 keys missing: {missing_keys_at02}, AT02 date cols missing: {missing_at02_dates}"
+                "Missing columns for SOBREGIRO mapping. "
+                f"DF keys available: {list(df.columns)}, AT02 keys available: {list(at02_df.columns)}"
             )
             return df
 
-        # Prepare left (base) frame with explicit base suffix for safe fallback
-        left_cols = keys + base_date_cols
-        left = df.reset_index(drop=True)[left_cols].copy()
-        rename_base = {c: f"{c}_base" for c in base_date_cols}
-        if rename_base:
-            left.rename(columns=rename_base, inplace=True)
+        # Prepare AT02 right frame with target date names
+        need_cols = ['Fecha_proceso', 'Fecha_Vencimiento']
+        if any(c not in at02_df.columns for c in need_cols):
+            self.logger.error(
+                f"AT02 required date columns missing for SOBREGIRO mapping: {[c for c in need_cols if c not in at02_df.columns]}"
+            )
+            return df
 
-        # Prepare right (AT02) frame with target names
-        right = at02_df[keys + [c for c in ['Fecha_proceso', 'Fecha_Vencimiento'] if c in at02_df.columns]].copy()
-        right.rename(columns={
+        right = at02_df.copy()
+        right = right.rename(columns={
             'Fecha_proceso': 'Fecha_Ultima_Actualizacion_at02',
             'Fecha_Vencimiento': 'Fecha_Vencimiento_at02'
-        }, inplace=True)
+        })
 
-        # Merge
-        merged = left.merge(right, on=keys, how='left')
+        import pandas as _pd
+        if join_mode == 'single_key':
+            left = df.reset_index(drop=True).copy()
+            # Normalize keys (digits-only, strip leading zeros); keep '0' for empties
+            left['_join_key'] = self._normalize_join_key(left['Id_Documento']) if 'Id_Documento' in left.columns else left.get('Id_Documento', '')
+            right['_join_key'] = self._normalize_join_key(right['Identificacion_Cuenta']) if 'Identificacion_Cuenta' in right.columns else right.get('Identificacion_Cuenta', '')
+            # Deduplicate right by most recent dates
+            r = right[['_join_key', 'Fecha_Ultima_Actualizacion_at02', 'Fecha_Vencimiento_at02']].copy()
+            for col in ['Fecha_Ultima_Actualizacion_at02', 'Fecha_Vencimiento_at02']:
+                try:
+                    r[col + '_dt'] = _pd.to_datetime(r[col], errors='coerce')
+                except Exception:
+                    r[col + '_dt'] = _pd.NaT
+            sort_cols = [c for c in ['Fecha_Ultima_Actualizacion_at02_dt', 'Fecha_Vencimiento_at02_dt'] if c in r.columns]
+            if sort_cols:
+                r = r.sort_values(sort_cols, ascending=False)
+            r = r.drop_duplicates(subset=['_join_key'], keep='first')
+            right_dedup = r[['_join_key', 'Fecha_Ultima_Actualizacion_at02', 'Fecha_Vencimiento_at02']]
+            merged = left.merge(right_dedup, on='_join_key', how='left')
+        else:
+            # dual_key
+            keys = ['Identificacion_cliente', 'Identificacion_Cuenta']
+            left_cols = keys + base_date_cols
+            left = df.reset_index(drop=True)[left_cols].copy()
+            rename_base = {c: f"{c}_base" for c in base_date_cols}
+            if rename_base:
+                left.rename(columns=rename_base, inplace=True)
+            right_cols = keys + ['Fecha_Ultima_Actualizacion_at02', 'Fecha_Vencimiento_at02']
+            right = right[right_cols].copy()
+            merged = left.merge(right, on=keys, how='left')
 
         # Diagnostics (debug level to avoid noise in INFO)
         try:
@@ -869,15 +906,19 @@ class AT12TransformationEngine(TransformationEngine):
         # Apply mapped dates with fallback to base
         out = df.reset_index(drop=True).copy()
 
-        if 'Fecha_Ultima_Actualizacion' in base_date_cols:
-            base_col = 'Fecha_Ultima_Actualizacion_base' if 'Fecha_Ultima_Actualizacion_base' in merged.columns else 'Fecha_Ultima_Actualizacion'
+        if 'Fecha_Ultima_Actualizacion' in out.columns:
+            base_col = 'Fecha_Ultima_Actualizacion'
+            if 'Fecha_Ultima_Actualizacion_base' in merged.columns:
+                base_col = 'Fecha_Ultima_Actualizacion_base'
             if 'Fecha_Ultima_Actualizacion_at02' in merged.columns:
                 out['Fecha_Ultima_Actualizacion'] = merged['Fecha_Ultima_Actualizacion_at02'].fillna(merged.get(base_col))
             else:
                 out['Fecha_Ultima_Actualizacion'] = merged.get(base_col)
 
-        if 'Fecha_Vencimiento' in base_date_cols:
-            base_col = 'Fecha_Vencimiento_base' if 'Fecha_Vencimiento_base' in merged.columns else 'Fecha_Vencimiento'
+        if 'Fecha_Vencimiento' in out.columns:
+            base_col = 'Fecha_Vencimiento'
+            if 'Fecha_Vencimiento_base' in merged.columns:
+                base_col = 'Fecha_Vencimiento_base'
             if 'Fecha_Vencimiento_at02' in merged.columns:
                 out['Fecha_Vencimiento'] = merged['Fecha_Vencimiento_at02'].fillna(merged.get(base_col))
             else:
