@@ -580,7 +580,8 @@ class AT12TransformationEngine(TransformationEngine):
             orig_series = None
 
         for idx, row in df.iterrows():
-            unique_key = f"{row.get('Id_Documento', '')}{row.get('Tipo_Facilidad', '')}"
+            # Use tuple key to avoid collisions from string concatenation
+            unique_key = (str(row.get('Id_Documento', '')), str(row.get('Tipo_Facilidad', '')))
             if unique_key not in unique_keys:
                 unique_keys[unique_key] = next_number
                 df.at[idx, 'Numero_Garantia'] = next_number
