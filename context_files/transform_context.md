@@ -161,6 +161,20 @@ This initial stage focuses on correcting structural and format errors in the `BA
 #### **Stage 2: Data Enrichment and Generation from Auxiliary Sources**
 This stage enriches the main dataset by joining it with auxiliary files and applying specific business logic.
 
+**2.0. Pre-processing of `Tipo_Facilidad` for TDC and Sobregiro**
+This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facilidad` is correctly set based on the presence of the loan in the core credit system.
+
+*   **Objective:** To assign `Tipo_Facilidad` based on a cross-reference with `AT03_CREDITOS`.
+*   **Scope:** Applies to both `TDC_AT12` and `SOBREGIRO_AT12` inputs.
+*   **Detailed Process (Logic):**
+    1.  For each record in `TDC_AT12` and `SOBREGIRO_AT12`, the `Numero_Prestamo` is checked against the `num_cta` column in `AT03_CREDITOS`.
+    2.  **Rule:**
+        *   If a match is found, `Tipo_Facilidad` is set to **'01'**.
+        *   If no match is found, `Tipo_Facilidad` is set to **'02'**.
+*   **Incidence Reporting:**
+    *   Any record where `Tipo_Facilidad` is changed is exported to a dedicated CSV file: `FACILIDAD_FROM_AT03_[SUBTYPE]_[YYYYMMDD].csv`.
+    *   This file includes all original columns plus a column `Tipo_Facilidad_ORIGINAL` to show the value before the change.
+
 **2.1. `TDC_AT12` (Credit Cards) Processing**
 *   **Objective:** Generate unique guarantee numbers and enrich TDC dates; solo “Tarjeta repetida” produce incidencias.
 *   **Detailed Process (Logic):**
