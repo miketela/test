@@ -424,7 +424,7 @@ class AT12TransformationEngine(TransformationEngine):
           2) ('Id_Documento','Tipo_Facilidad')
 
         Records sharing the same key are considered 'Tarjeta_repetida'.
-        Export full-row subset to TARJETA_REPETIDA_<PERIODO>.csv and record incidences.
+        Export full-row subset to legacy TARJETA_REPETIDA_<PERIODO>.csv and also to new INC_REPEATED_CARD_TDC_AT12_<PERIODO>.csv.
         """
         # Choose key according to available columns
         if all(c in df.columns for c in ['Identificacion_cliente', 'Identificacion_Cuenta', 'Tipo_Facilidad']):
@@ -455,9 +455,12 @@ class AT12TransformationEngine(TransformationEngine):
                 pass
 
             try:
-                self._store_incidences('TARJETA_REPETIDA', [{
+                payload = [{
                     'key': key_series.loc[i]
-                } for i in df[dup_mask].index], context)
+                } for i in df[dup_mask].index]
+                # Store both legacy and new rule keys
+                self._store_incidences('TARJETA_REPETIDA', payload, context)
+                self._store_incidences('INC_REPEATED_CARD', payload, context)
             except Exception:
                 pass
 
@@ -465,6 +468,10 @@ class AT12TransformationEngine(TransformationEngine):
                 self._export_error_subset(df, dup_mask, 'TDC_AT12', 'TARJETA_REPETIDA', context, None)
             except Exception as e:
                 self.logger.warning(f"Failed to export TARJETA_REPETIDA subset: {e}")
+            try:
+                self._export_error_subset(df, dup_mask, 'TDC_AT12', 'INC_REPEATED_CARD', context, None)
+            except Exception as e:
+                self.logger.warning(f"Failed to export INC_REPEATED_CARD subset: {e}")
 
         return df
     
@@ -563,7 +570,8 @@ class AT12TransformationEngine(TransformationEngine):
 
         df = df.copy()
         df['Numero_Garantia'] = None
-        df = df.sort_values('Id_Documento', ascending=False).reset_index(drop=True)
+        # Sort ascending by Id_Documento as per new TDC context
+        df = df.sort_values('Id_Documento', ascending=True).reset_index(drop=True)
 
         unique_keys = {}
         next_number = 855500
@@ -608,6 +616,41 @@ class AT12TransformationEngine(TransformationEngine):
         if incidences:
             self._store_incidences('TDC_NUMERO_GARANTIA_GENERATION', incidences, context)
         self.logger.info(f"Generated {len(unique_keys)} unique guarantee numbers for TDC_AT12")
+        
+        # Error condition: repeated Numero_Prestamo for same (Id_Documento, Tipo_Facilidad)
+        try:
+            if 'Numero_Prestamo' in df.columns:
+                dup_mask = (
+                    df['Numero_Prestamo'].astype(str).ne('') &
+                    df.duplicated(subset=['Id_Documento', 'Tipo_Facilidad', 'Numero_Prestamo'], keep=False)
+                )
+                if dup_mask.any():
+                    payload = []
+                    for i in df[dup_mask].index:
+                        payload.append({
+                            'Index': int(i),
+                            'Id_Documento': df.at[i, 'Id_Documento'],
+                            'Numero_Prestamo': df.at[i, 'Numero_Prestamo'],
+                            'Tipo_Facilidad': df.at[i, 'Tipo_Facilidad'],
+                        })
+                        try:
+                            self._add_incidence(
+                                incidence_type=IncidenceType.BUSINESS_RULE_VIOLATION,
+                                severity=IncidenceSeverity.HIGH,
+                                rule_id='INC_LOAN_NUMBER_REPEATED',
+                                description='Loan_Number repeats for (Id_Documento, Tipo_Facilidad)',
+                                data={'record_index': int(i)}
+                            )
+                        except Exception:
+                            pass
+                    # Store and export under new rule name
+                    self._store_incidences('INC_LOAN_NUMBER_REPEATED', payload, context)
+                    try:
+                        self._export_error_subset(df, dup_mask, 'TDC_AT12', 'INC_LOAN_NUMBER_REPEATED', context, None)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         return df
     
     def _apply_date_mapping_tdc(self, df: pd.DataFrame, context: TransformationContext, 
