@@ -81,32 +81,24 @@ This initial stage focuses on correcting structural and format errors in the `BA
     3.  Replace any sequence of two or more spaces in the middle of the field with a single space.
 *   **Final Action (Output):** The field is cleaned of all excess whitespace.
 
-1.2. Error 0301: Id_Documento Logic for Mortgage Guarantees
+**1.2. ERROR_0301: Id_Documento (Tipo_Garantia = '0301')**
 
-Objective: To validate and correct the length and format of the Id_Documento field according to complex business rules for the mortgage guarantee type, using a consistent 1-based index from left to right for all positional checks.
-Input Identification: Filter all records from BASE_AT12 where Tipo_Garantia = '0301'.
-Detailed Process (Logic): For each filtered record, apply the following validation sequence:
-Sub-Rule 1 (Length 10 for Specific Types):
-Condition: IF the characters at positions 9 and 10 of the Id_Documento string are '01', '41', or '42'.
-Process: Ensure the final length of the string is exactly 10. IF it is longer than 10 (e.g., '0000000100008482'), apply a substring function to extract the first 10 characters.
-Example: '0000000100008482' becomes '0000000100'. IF it is shorter than 10, the record is flagged for manual review.
-Output: Id_Documento with exactly 10 characters.
-Sub-Rule 2 (Type 701):
-Condition: ELSE IF the record meets the criteria for this rule.
-Process: Check if the length of Id_Documento is 10 or 11. IF it is, then check if the characters at positions 8, 9, and 10 (for a 10-char string) or positions 9, 10, and 11 (for an 11-char string) form the sequence '701'.
-IF the condition is met, the value is considered valid and is not modified.
-IF the length is 10 and the condition is met, it must be included in a follow-up report for tracking, but the data itself is not altered.
-Output: Id_Documento remains unchanged.
-Sub-Rule 3 (Length 15 for Specific Types):
-Condition: ELSE IF the record meets the criteria for this rule.
-Process:
-Check Length: First, validate if the Id_Documento has a length of 15 characters.
-Validate Position: IF the length is 15, then check if the characters at positions 13, 14, and 15 form one of the following sequences: '100', '110', '120', '123', or '810'.
-Handle Deviations:
-IF the length is greater than 15, truncate the string to the first 15 characters and add the original and corrected values to an incident report.
-IF the length is less than 15, add the record to an incident report, but do not modify the data.
-Example: For Id_Documento = '810010790346300', the length is 15. The characters at positions 13-15 are '300'. This does not match the required list, so no action is taken under this rule. For an Id_Documento of '123456789012100', the length is 15 and the characters at positions 13-15 are '100', so it is valid.
-Output: Id_Documento is either unchanged or truncated to 15 characters. All deviations from the 15-character length are reported.
+- Objetivo: Validar y corregir `Id_Documento` con reglas por posición (indexación 1‑based).
+- Alcance: Solo filas con `Tipo_Garantia = '0301'`.
+- Lógica (por fila):
+  - Sub‑Regla 1 — Posiciones 9–10 ∈ {'01','41','42'}:
+    - Si longitud > 10: truncar a los primeros 10 caracteres.
+    - Si longitud < 10: no modificar; marcar para revisión manual.
+  - Sub‑Regla 2 — Secuencia '701' según longitud:
+    - Si longitud = 10: revisar posiciones 8–10.
+    - Si longitud = 11: revisar posiciones 9–11.
+    - Si la secuencia es '701': el valor es válido y no se modifica; si longitud = 10, registrar para seguimiento.
+  - Sub‑Regla 3 — Longitud 15 y otras:
+    - Si longitud > 15: truncar a 15 (registrar original y corregido).
+    - Si 0 < longitud < 15: registrar desviación (sin modificar).
+    - Si longitud = 15: validar posiciones 13–15 ∈ {'100','110','120','123','810'} (sin modificar).
+- Exportación de incidencias:
+  - Se exporta `ERROR_0301_[SUBTIPO]_[YYYYMMDD].csv` solo para filas donde `Id_Documento` cambió.
 
 **1.3. COMA EN FINCA EMPRESA**
 *   **Objective:** To remove disallowed characters from the document identifier.
@@ -170,24 +162,30 @@ Output: Id_Documento is either unchanged or truncated to 15 characters. All devi
 This stage enriches the main dataset by joining it with auxiliary files and applying specific business logic.
 
 **2.1. `TDC_AT12` (Credit Cards) Processing**
-*   **Objective:** Generate unique guarantee codes and enrich TDC dates.
+*   **Objective:** Generate unique guarantee numbers and enrich TDC dates; solo “Tarjeta repetida” produce incidencias.
 *   **Detailed Process (Logic):**
-    1.  **`Número_Garantía` Generation:**
-        *   **Preparation:** Clear `Numero_Garantia` for all records and sort by `Id_Documento` (ascending).
-        *   **Key:** `Id_Documento` + `Tipo_Facilidad`.
-        *   **Sequential Assignment:** Start at 855,500. First occurrence of a key gets a new number; subsequent occurrences of the same key reuse it.
-        *   **Special:** If `Tipo_Facilidad` changes for the same `Id_Documento`, assign the next sequential number (covered by the key definition).
-        *   **Error Condition:** If `Numero_Prestamo` repeats for the same (`Id_Documento`, `Tipo_Facilidad`), it is handled as part of the transformation (no separate incidence file). The condition is logged for traceability.
-    2.  **Date Mapping (Updated):**
-        *   `JOIN` with `AT02_CUENTAS` using `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02).
-        *   Update `Fecha_Última_Actualización` from `Fecha_inicio` (AT02).
-        *   Update `Fecha_Vencimiento` from `Fecha_Vencimiento` (AT02).
-        *   If no match: keep original values.
-    3.  **Inconsistency: `Tarjeta_repetida` (no loan-number involvement):**
-        *   Detect duplicates excluding `Numero_Prestamo` using key priority:
-            - (`Identificacion_cliente`, `Identificacion_Cuenta`, `Tipo_Facilidad`) if available; otherwise
+    1.  **`Numero_Garantia` Generation (por run):**
+        *   Preparación: limpiar `Numero_Garantia` y ordenar por `Id_Documento` ascendente.
+        *   Llave: (`Id_Documento`, `Tipo_Facilidad`).
+        *   Asignación: secuencia desde 855,500 por run; primera ocurrencia asigna, repetidas reutilizan.
+        *   Repetidos por `Numero_Prestamo` dentro de la misma llave: solo log (sin incidencias).
+    2.  **Date Mapping:**
+        *   JOIN `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02).
+        *   `Fecha_Última_Actualización` ← `Fecha_inicio` (AT02) y `Fecha_Vencimiento` ← `Fecha_Vencimiento` (AT02).
+        *   Sin match: mantener valores originales.
+    3.  **Inconsistencia `Tarjeta_repetida`:**
+        *   Detectar duplicados excluyendo `Numero_Prestamo` usando prioridad de clave:
+            - (`Identificacion_cliente`, `Identificacion_Cuenta`, `Tipo_Facilidad`) o,
             - (`Id_Documento`, `Tipo_Facilidad`).
-        *   Export full-row CSV with affected records: `INC_REPEATED_CARD_TDC_AT12_[YYYYMMDD].csv`.
+        *   Export: `INC_REPEATED_CARD_TDC_AT12_[YYYYMMDD].csv`.
+
+*Ejemplo `Numero_Garantia` (por run)*
+
+| Id_Documento | Numero_Prestamo | Tipo_Facilidad | Numero_Garantia |
+| --- | --- | --- | --- |
+| 10000 | 012312 | 01 | 855500 |
+| 10000 | 012313 | 01 | 855500 |
+| 10000 | 012314 | 02 | 855501 |
 
 **2.2. `SOBREGIRO_AT12` (Overdrafts) Processing**
 *   **Objective:** To enrich the overdraft atom with dates from the source account.
@@ -275,7 +273,7 @@ This is a critical stage of the ETL pipeline where financial validations are per
   - Formato: `[REGLA]_[SUBTIPO]_[YYYYMMDD].csv` (ej.: `FECHA_AVALUO_ERRADA_BASE_AT12_20250701.csv`).
   - Incluyen columnas `_ORIGINAL` junto a cada campo corregido.
 - Agregados globales (p.ej., EEOR_TABULAR):
-  - Formato: `EEOR_TABULAR_[YYYYMMDD].csv`.
+  - Formato: `EEOR_TABULAR_[SUBTIPO]_[YYYYMMDD].csv` (incluye subtipo para evitar sobreescritura entre tipos).
 
 ### **Anexo: Esquema de Archivos de Entrada**
 
