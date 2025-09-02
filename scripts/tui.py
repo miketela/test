@@ -335,6 +335,23 @@ def prepare_tmp_raw(selected: List[Path]) -> Path:
         shutil.copy2(p, TMP_RAW_DIR / p.name)
     return TMP_RAW_DIR
 
+def prepare_tmp_raw_with_run(selected: List[Path], year: int, month: int) -> Path:
+    """Copy selected files to TMP_RAW_DIR and stamp __run-YYYYMM in filenames."""
+    run_id = f"{year}{month:02d}"
+    if TMP_RAW_DIR.exists():
+        shutil.rmtree(TMP_RAW_DIR)
+    TMP_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    for p in selected:
+        stem = p.stem
+        suffix = p.suffix
+        # If already has __run, keep it; otherwise, append
+        if '__run-' in p.name:
+            target_name = p.name
+        else:
+            target_name = f"{stem}__run-{run_id}{suffix}"
+        shutil.copy2(p, TMP_RAW_DIR / target_name)
+    return TMP_RAW_DIR
+
 
 def run_cmd(args: List[str], env_overrides: Optional[dict] = None) -> int:
     env = os.environ.copy()
@@ -434,7 +451,36 @@ def action_transform():
 
     all_available = list_all_raw_files()
     if not all_available:
-        print("No files found in data/raw (no __run-*.csv files).")
+        print("No files found in data/raw (no __run-*.csv files). Fallback to source/...")
+        files = list_source_files()
+        if not files:
+            print("No files in source/ either.")
+            return
+        wanted = prompt_subtype_filter(files)
+        list_for_pick = [p for p in files if not wanted or infer_subtype(p.name) in wanted]
+        if not list_for_pick:
+            print("No files after applying subtype filter.")
+            return
+        selected = pick_files(list_for_pick)
+        if not selected:
+            print("No selection.")
+            return
+        # Infer or prompt period
+        default_period = extract_date_from_name(selected[0].name)
+        year = prompt_int("Year", default_period[0] if default_period else 2024)
+        month = prompt_int("Month", default_period[1] if default_period else 1)
+        tmp_raw = prepare_tmp_raw_with_run(selected, year, month)
+        print(f"Using temporary RAW_DIR: {tmp_raw}")
+        rc = run_cmd([sys.executable, str(PROJECT_ROOT / "main.py"),
+                      "transform", "--atoms", "AT12", "--year", str(year), "--month", str(month)],
+                     env_overrides={"SBP_DATA_RAW_DIR": str(tmp_raw)})
+        if rc == 0:
+            print("Transform completed.")
+        elif rc == 2:
+            print("Transform completed with warnings.")
+        else:
+            print("Transform failed.")
+            _show_run_log_tail("transform", f"{year}{month:02d}")
         return
     # Optional subtype filter
     wanted = prompt_subtype_filter(all_available)
@@ -559,7 +605,7 @@ def main():
         print("(Tip) For interactive menus, install InquirerPy: pip install InquirerPy")
     menu_items = [
         "Explore (pick files)",
-        "Transform (from last explore run)",
+        "Transform (pick from raw/source)",
         "Report (choose metrics JSON)",
         "Clean (delete outputs - testing)",  # TODO: remove before release
         "Exit",
