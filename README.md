@@ -282,16 +282,17 @@ The system uses environment variables and configuration files:
 
 ## AT12 Transformation Highlights (TDC updates)
 
-- TDC Número_Garantía:
-  - Limpia la columna y ordena por `Id_Documento` en orden descendente.
-  - Clave: `Id_Documento + Tipo_Facilidad` (se excluye `Numero_Prestamo`).
-  - Asigna números secuenciales desde 855,500 y reutiliza para claves repetidas.
+- TDC Número_Garantía (por run):
+  - Limpia la columna y ordena por `Id_Documento` en orden ascendente.
+  - Llave: (`Id_Documento`, `Tipo_Facilidad`) — se excluye `Numero_Prestamo`.
+  - Asigna números secuenciales desde 855,500 y reutiliza para la misma llave.
+  - Repetidos por `Numero_Prestamo` dentro de la misma llave: solo log (sin incidencias).
 - Mapeo de fechas (TDC ↔ AT02_CUENTAS):
   - Join por `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02).
   - `Fecha_Última_Actualización` ← `Fecha_inicio` (AT02) y `Fecha_Vencimiento` ← `Fecha_Vencimiento` (AT02).
 - Inconsistencia `Tarjeta_repetida` (solo CSV):
   - Detecta duplicados excluyendo `Numero_Prestamo` con prioridad de clave: (1) `Identificacion_cliente`,`Identificacion_Cuenta`,`Tipo_Facilidad`; si no, (2) `Id_Documento`,`Tipo_Facilidad`.
-  - Exporta `data/processed/transforms/AT12/incidencias/INC_TARJETA_REPETIDA_TDC_AT12_<PERIODO>.csv` con filas completas.
+  - Exporta `data/processed/transforms/AT12/incidencias/INC_REPEATED_CARD_TDC_AT12_<PERIODO>.csv` con filas completas.
 - ✅ PDF report generation with detailed statistics
 - ✅ Comprehensive logging and audit trails
 - ✅ Dual format support (CSV + XLSX)
@@ -299,9 +300,16 @@ The system uses environment variables and configuration files:
 - ✅ Integration tests for end-to-end workflows
 
 **🔄 PENDING:**
-- ⏳ AT12 transformation phase (awaiting functional specifications)
 - ⏳ Additional atom types (AT03, etc.)
-- ⏳ Join rules and deduplication logic
+- ⏳ Extra validations per regulator updates
+
+## AT12 Stage 1 Errors (Resumen)
+
+- EEOR_TABULAR: limpieza de espacios (trim y colapsar múltiples espacios). Incidencia global: `EEOR_TABULAR_[SUBTIPO]_[YYYYMMDD].csv`.
+- ERROR_0301 (Id_Documento, hipotecas): reglas por posición (1‑based). Exporta solo filas con cambio a `ERROR_0301_[SUBTIPO]_[YYYYMMDD].csv`. Ver detalles en `context_files/transform_context.md`.
+- FECHA_CANCELACION_ERRADA: corrige `Fecha_Vencimiento` fuera de rango a `21001231` (exporta subconjunto por filas cambiadas).
+- FECHA_AVALUO_ERRADA: corrige `Fecha_Ultima_Actualizacion` usando AT03 (exporta subconjunto por filas cambiadas).
+- Reglas adicionales (polizas, avaluadora, etc.): ver `context_files/transform_context.md`.
 
 ## Testing
 
