@@ -397,6 +397,12 @@ class AT12TransformationEngine(TransformationEngine):
         """Process TDC (Tarjeta de Crédito) specific data (guarantee number + date mapping + duplicates)."""
         self.logger.info("Processing TDC_AT12 data - Stage 2")
 
+        # Step 0: Ensure Tipo_Facilidad from AT03 (must run before any other step)
+        try:
+            df = self._ensure_tipo_facilidad_from_at03(df, 'TDC_AT12', context, result, source_data)
+        except Exception as e:
+            self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for TDC due to error: {e}")
+
         # Step 1: Generate Número_Garantía (in-process, no incidences)
         df = self._generate_numero_garantia_tdc(df, context)
 
@@ -514,6 +520,12 @@ class AT12TransformationEngine(TransformationEngine):
         """Process Sobregiro specific data according to Stage 2 specifications."""
         self.logger.info("Processing SOBREGIRO_AT12 data - Stage 2")
         
+        # Step 0: Ensure Tipo_Facilidad from AT03 (must run before any other step)
+        try:
+            df = self._ensure_tipo_facilidad_from_at03(df, 'SOBREGIRO_AT12', context, result, source_data)
+        except Exception as e:
+            self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for SOBREGIRO due to error: {e}")
+
         # Light normalization (trim + monetarias)
         df = self._normalize_tdc_basic(df)
 
@@ -537,6 +549,94 @@ class AT12TransformationEngine(TransformationEngine):
         if 'Importe__num' in df.columns:
             df['Importe'] = self._format_money_comma(df['Importe__num'])
         
+        return df
+
+    def _ensure_tipo_facilidad_from_at03(self, df: pd.DataFrame, subtype: str, context: TransformationContext,
+                                         result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Set Tipo_Facilidad based on presence of loan in AT03_CREDITOS.
+
+        Rules:
+        - If Numero_Prestamo (normalized) exists in AT03.num_cta (normalized) → Tipo_Facilidad = '01'
+        - Else → '02'
+        - Export CSV with changed rows only: FACILIDAD_FROM_AT03_[SUBTYPE]_[YYYYMMDD].csv, preserving all columns and
+          adding Tipo_Facilidad_ORIGINAL next to Tipo_Facilidad.
+        """
+        if df is None or df.empty:
+            return df
+        if 'AT03_CREDITOS' not in source_data or source_data['AT03_CREDITOS'].empty:
+            self.logger.info("AT03_CREDITOS not available; skipping FACILIDAD_FROM_AT03")
+            return df
+
+        # Resolve loan number column on DF (support accented variant for TDC)
+        loan_col = None
+        if 'Numero_Prestamo' in df.columns:
+            loan_col = 'Numero_Prestamo'
+        elif 'Número_Préstamo' in df.columns:
+            loan_col = 'Número_Préstamo'
+        else:
+            self.logger.warning("FACILIDAD_FROM_AT03 skipped: Numero_Prestamo column not found")
+            return df
+
+        if 'Tipo_Facilidad' not in df.columns:
+            self.logger.warning("FACILIDAD_FROM_AT03 skipped: Tipo_Facilidad column not found")
+            return df
+
+        at03 = source_data['AT03_CREDITOS']
+        if 'num_cta' not in at03.columns:
+            self.logger.warning("FACILIDAD_FROM_AT03 skipped: num_cta not found in AT03_CREDITOS")
+            return df
+
+        # Normalize keys
+        try:
+            left_keys = self._normalize_join_key(df[loan_col])
+        except Exception:
+            left_keys = df[loan_col].astype(str)
+        try:
+            right_keys = self._normalize_join_key(at03['num_cta'])
+        except Exception:
+            right_keys = at03['num_cta'].astype(str)
+
+        at03_set = set(right_keys.dropna().astype(str).tolist())
+        # Determine new Tipo_Facilidad values
+        present_mask = left_keys.astype(str).isin(at03_set)
+        # Build proposed values Series aligned to df
+        import pandas as _pd
+        new_vals = _pd.Series(_pd.NA, index=df.index, dtype=object)
+        new_vals.loc[present_mask] = '01'
+        new_vals.loc[~present_mask] = '02'
+
+        # Identify changes
+        current_vals = df['Tipo_Facilidad'].astype(str)
+        change_mask = current_vals != new_vals.astype(str)
+        changed_count = int(change_mask.sum())
+        if changed_count > 0:
+            try:
+                self.logger.info(f"FACILIDAD_FROM_AT03 ({subtype}): updating Tipo_Facilidad for {changed_count} record(s)")
+            except Exception:
+                pass
+            # Preserve original column for export
+            original_map = {'Tipo_Facilidad': df['Tipo_Facilidad'].copy()}
+            # Apply changes
+            df = df.copy()
+            df.loc[change_mask, 'Tipo_Facilidad'] = new_vals.loc[change_mask]
+            # Export changed subset with original value alongside
+            try:
+                self._export_error_subset(df, change_mask, subtype, 'FACILIDAD_FROM_AT03', context, result, original_columns=original_map)
+            except Exception as e:
+                self.logger.warning(f"Failed to export FACILIDAD_FROM_AT03 subset: {e}")
+            # Store concise incidences
+            try:
+                payload = [{
+                    'Index': int(i),
+                    'Numero_Prestamo': str(df.at[i, loan_col]) if loan_col in df.columns else '',
+                    'Tipo_Facilidad_New': str(df.at[i, 'Tipo_Facilidad']),
+                    'Action': 'Tipo_Facilidad set from AT03 presence'
+                } for i in df[change_mask].index]
+                if payload:
+                    self._store_incidences('FACILIDAD_FROM_AT03', payload, context)
+            except Exception:
+                pass
+
         return df
     
     def _process_valores_data(self, df: pd.DataFrame, context: TransformationContext, 
