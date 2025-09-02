@@ -23,7 +23,7 @@ A single, auditable ETL pipeline for AT12: cleaning → enrichment → business 
 
 ## Stage 2: Enrichment and Atom Generation
 - TDC_AT12 (Credit Cards)
-  - Numero_Garantia: sequential from 855,500 by key `Id_Documento + Numero_Prestamo + Tipo_Facilidad` (clear column first and sort by `Id_Documento`).
+  - Numero_Garantia: sequential from 855,500 by key `Id_Documento + Tipo_Facilidad` (clear column first and sort by `Id_Documento`).
   - Date mapping (updated): JOIN with AT02_CUENTAS using `Id_Documento` (TDC) to `identificacion_de_cuenta` (AT02). Update `Fecha_Última_Actualización` from `Fecha_inicio` (AT02) and `Fecha_Vencimiento` from `Fecha_Vencimiento` (AT02).
   - Inconsistency Tarjeta_repetida: detect duplicates excluding `Numero_Prestamo` using key priority: (1) `Identificacion_cliente`,`Identificacion_Cuenta`,`Tipo_Facilidad`; else (2) `Id_Documento`,`Tipo_Facilidad`. Export CSV per rule: `TARJETA_REPETIDA_TDC_AT12_[YYYYMMDD].csv`.
 - SOBREGIRO_AT12

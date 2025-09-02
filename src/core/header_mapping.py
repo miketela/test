@@ -23,8 +23,7 @@ class HeaderMapper:
         'Importe_por_pagar', 'Segmento'
     ]
     
-    # Expected headers for TDC_AT12 as defined by user-provided headers.
-    # Preserve spaces and accents exactly as provided for validation.
+    # Expected headers for TDC_AT12 as defined by the functional context (exact order, accents preserved)
     TDC_AT12_EXPECTED = [
         'Fecha',
         'Código_Banco',
@@ -48,11 +47,17 @@ class HeaderMapper:
         'Fecha_Vencimiento',
         'Tipo_Poliza',
         'Código_Región',
-        'num_garantía',
+        'Número_Garantía',
         'Número_Cis_Garantía',
         'Moneda',
         'Importe',
-        'Descripción de la Garantía'
+        'Descripción de la Garantía',
+        'ACMON',
+        'ACIMP2',
+        'ACNGA',
+        'ACCIS',
+        'LIMITE',
+        'SALDO'
     ]
 
     # Build a normalization helper (uppercase normalized form) for consistent lookups
@@ -82,8 +87,8 @@ class HeaderMapper:
         'PAIS_EMISION': 'País_Emisión',
         'FECHA_ULTIMA_ACTUALIZACION': 'Fecha_Última_Actualización',
         'COD_REGION': 'Código_Región',
-        'NUM_GARANTIA': 'num_garantía',
-        'NUMERO_GARANTIA': 'num_garantía',
+        'NUM_GARANTIA': 'Número_Garantía',
+        'NUMERO_GARANTIA': 'Número_Garantía',
         'NUM_CIS_GARANTIA': 'Número_Cis_Garantía',
         'NUMERO_CIS_GARANTIA': 'Número_Cis_Garantía',
         'DESCRIPCION_DE_LA_GARANTIA': 'Descripción de la Garantía',

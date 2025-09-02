@@ -408,6 +408,31 @@ class AT12TransformationEngine(TransformationEngine):
             df = self._validate_tdc_tarjeta_repetida(df, context)
         except Exception as e:
             self.logger.warning(f"TDC 'Tarjeta_repetida' validation skipped due to error: {e}")
+        
+        # Step 4: Shape final output columns and order exactly as TDC schema
+        try:
+            from src.core.header_mapping import HeaderMapper as _HM
+            expected_cols = list(_HM.TDC_AT12_EXPECTED)
+            # Harmonize accented variants to match schema (no synthetic creation)
+            if 'Fecha_Última_Actualización' not in df.columns and 'Fecha_Ultima_Actualizacion' in df.columns:
+                df['Fecha_Última_Actualización'] = df['Fecha_Ultima_Actualizacion']
+            if 'Valor_Garantía' not in df.columns and 'Valor_Garantia' in df.columns:
+                df['Valor_Garantía'] = df['Valor_Garantia']
+            if 'Código_Banco' not in df.columns and 'Codigo_Banco' in df.columns:
+                df['Código_Banco'] = df['Codigo_Banco']
+            if 'Código_Región' not in df.columns and 'Codigo_Region' in df.columns:
+                df['Código_Región'] = df['Codigo_Region']
+            if 'Número_Garantía' not in df.columns and 'Numero_Garantia' in df.columns:
+                df['Número_Garantía'] = df['Numero_Garantia']
+            # Strict reorder only if complete
+            missing = [c for c in expected_cols if c not in df.columns]
+            if not missing:
+                df = df[expected_cols]
+            else:
+                self.logger.warning(f"TDC schema order not strictly enforced; missing columns: {missing}")
+        except Exception as e:
+            self.logger.warning(f"Failed to enforce TDC schema order: {e}")
+        
         return df
 
     def _col_any(self, df: pd.DataFrame, candidates: list) -> Optional[str]:
@@ -435,7 +460,21 @@ class AT12TransformationEngine(TransformationEngine):
             # No sufficient columns to detect duplicates
             return df
 
-        key_series = df[key_cols].astype(str).agg('|'.join, axis=1)
+        # Normalize key components to avoid false positives/negatives (strip non-digits/leading zeros)
+        norm_parts = []
+        for col in key_cols:
+            try:
+                norm_parts.append(self._normalize_join_key(df[col]))
+            except Exception:
+                norm_parts.append(df[col].astype(str))
+        from pandas import Series as _Series
+        try:
+            key_series = (_Series(norm_parts[0]).astype(str))
+            for part in norm_parts[1:]:
+                key_series = key_series.str.cat(_Series(part).astype(str), sep='|')
+        except Exception:
+            # Fallback to non-normalized join if anything fails
+            key_series = df[key_cols].astype(str).agg('|'.join, axis=1)
         dup_mask = key_series.duplicated(keep=False)
         if dup_mask.any():
             try:
@@ -549,25 +588,45 @@ class AT12TransformationEngine(TransformationEngine):
         return df
     
     def _generate_numero_garantia_tdc(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
-        """Generate unique guarantee codes for TDC_AT12 (updated context).
+        """Generate/normalize Número_Garantía for TDC_AT12 using functional context rules.
 
-        - Clear Numero_Garantia and sort by Id_Documento ascending.
-        - Key: (Id_Documento, Tipo_Facilidad).
-        - Sequential from 855500; reuse for repeated keys.
-        - No incidences emitted; handled as part of transformation.
+        - Target column: 'Número_Garantía' (exact accent and casing).
+        - Key for assignment: (Id_Documento, Tipo_Facilidad).
+        - Sequential from 855500; reuse for repeated keys within the run.
+        - No incidences emitted; logging only.
         """
-        self.logger.info("Generating Número_Garantía for TDC_AT12")
+        self.logger.info("Generating/normalizing Número_Garantía for TDC_AT12")
 
         required_cols = ['Id_Documento', 'Tipo_Facilidad']
         missing_required = [c for c in required_cols if c not in df.columns]
         if missing_required:
             self.logger.warning(f"Skipping Número_Garantía generation; missing columns: {missing_required}")
-            if 'Numero_Garantia' not in df.columns:
-                df = df.copy(); df['Numero_Garantia'] = None
+            # Ensure target exists to avoid KeyErrors downstream
+            target = None
+            if 'Número_Garantía' in df.columns:
+                target = 'Número_Garantía'
+            elif 'Numero_Garantia' in df.columns:
+                target = 'Numero_Garantia'
+            elif 'num_garantía' in df.columns:
+                target = 'num_garantía'
+            if target is not None and target not in df.columns:
+                df = df.copy(); df[target] = None
             return df
 
         df = df.copy()
-        df['Numero_Garantia'] = None
+        # Determine target column to update (prefer exact schema name)
+        if 'Número_Garantía' in df.columns:
+            target_col = 'Número_Garantía'
+        elif 'Numero_Garantia' in df.columns:
+            target_col = 'Numero_Garantia'
+        elif 'num_garantía' in df.columns:
+            target_col = 'num_garantía'
+        else:
+            # Create it explicitly if mapping hasn't run yet
+            target_col = 'Número_Garantía'
+            df[target_col] = None
+        # Clear target column before assignment
+        df[target_col] = None
         # Sort ascending by Id_Documento as per new TDC context
         df = df.sort_values('Id_Documento', ascending=True).reset_index(drop=True)
 
@@ -584,7 +643,7 @@ class AT12TransformationEngine(TransformationEngine):
             unique_key = (str(row.get('Id_Documento', '')), str(row.get('Tipo_Facilidad', '')))
             if unique_key not in unique_keys:
                 unique_keys[unique_key] = next_number
-                df.at[idx, 'Numero_Garantia'] = next_number
+                df.at[idx, target_col] = next_number
                 incidences.append({
                     'Index': idx,
                     'Id_Documento': row.get('Id_Documento', ''),
@@ -594,7 +653,7 @@ class AT12TransformationEngine(TransformationEngine):
                 })
                 next_number += 1
             else:
-                df.at[idx, 'Numero_Garantia'] = unique_keys[unique_key]
+                df.at[idx, target_col] = unique_keys[unique_key]
                 incidences.append({
                     'Index': idx,
                     'Id_Documento': row.get('Id_Documento', ''),
@@ -621,6 +680,15 @@ class AT12TransformationEngine(TransformationEngine):
                         pass
         except Exception:
             pass
+        # If we used a legacy/mapped variant, harmonize to 'Número_Garantía'
+        if target_col != 'Número_Garantía':
+            try:
+                df['Número_Garantía'] = df[target_col]
+                # Drop old column variant if different
+                if target_col in df.columns and target_col != 'Número_Garantía':
+                    df.drop(columns=[target_col], inplace=True, errors='ignore')
+            except Exception:
+                pass
         return df
     
     def _apply_date_mapping_tdc(self, df: pd.DataFrame, context: TransformationContext, 
@@ -664,20 +732,64 @@ class AT12TransformationEngine(TransformationEngine):
         right = at02_df[[at02_key, at02_start, at02_end]].copy()
         right.columns = ['_key_at02', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']
 
+        # Normalize join keys on both sides to improve matches and avoid format issues
         left = df.copy()
         left['_key_tdc'] = left[tdc_key].astype(str)
-        right['_key_at02'] = right['_key_at02'].astype(str)
+        try:
+            left['_join_key'] = self._normalize_join_key(left['_key_tdc'])
+        except Exception:
+            left['_join_key'] = left['_key_tdc']
 
-        merged = left.merge(right, left_on='_key_tdc', right_on='_key_at02', how='left')
+        right['_key_at02'] = right['_key_at02'].astype(str)
+        try:
+            right['_join_key'] = self._normalize_join_key(right['_key_at02'])
+        except Exception:
+            right['_join_key'] = right['_key_at02']
+
+        # Deduplicate AT02 per normalized key to avoid 1-to-many row explosions on merge
+        # Prefer the most recent available dates when duplicates exist
+        try:
+            r = right.copy()
+            # Parse dates for ordering if possible
+            import pandas as _pd
+            for col in ['Fecha_inicio_at02', 'Fecha_Vencimiento_at02']:
+                if col in r.columns:
+                    try:
+                        r[col + '_dt'] = _pd.to_datetime(r[col], errors='coerce')
+                    except Exception:
+                        r[col + '_dt'] = _pd.NaT
+            sort_cols = []
+            if 'Fecha_inicio_at02_dt' in r.columns:
+                sort_cols.append('Fecha_inicio_at02_dt')
+            if 'Fecha_Vencimiento_at02_dt' in r.columns:
+                sort_cols.append('Fecha_Vencimiento_at02_dt')
+            if sort_cols:
+                r = r.sort_values(sort_cols, ascending=False)
+            r = r.drop_duplicates(subset=['_join_key'], keep='first')
+            right_dedup = r[['_join_key', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']].copy()
+        except Exception:
+            # Conservative fallback: keep first occurrence per key
+            right_dedup = right.drop_duplicates(subset=['_join_key'], keep='first')[[
+                '_join_key', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']].copy()
+
+        merged = left.merge(right_dedup, on='_join_key', how='left')
 
         incidences = []
+        # Resolve target columns (handle accented and non-accented variants)
+        tgt_last_update = None
+        if 'Fecha_Ultima_Actualizacion' in merged.columns:
+            tgt_last_update = 'Fecha_Ultima_Actualizacion'
+        elif 'Fecha_Última_Actualización' in merged.columns:
+            tgt_last_update = 'Fecha_Última_Actualización'
+        tgt_venc = 'Fecha_Vencimiento' if 'Fecha_Vencimiento' in merged.columns else None
+
         for idx, row in merged.iterrows():
             updated = False
-            if pd.notna(row.get('Fecha_inicio_at02')) and 'Fecha_Ultima_Actualizacion' in merged.columns:
-                merged.at[idx, 'Fecha_Ultima_Actualizacion'] = row['Fecha_inicio_at02']
+            if pd.notna(row.get('Fecha_inicio_at02')) and tgt_last_update:
+                merged.at[idx, tgt_last_update] = row['Fecha_inicio_at02']
                 updated = True
-            if pd.notna(row.get('Fecha_Vencimiento_at02')) and 'Fecha_Vencimiento' in merged.columns:
-                merged.at[idx, 'Fecha_Vencimiento'] = row['Fecha_Vencimiento_at02']
+            if pd.notna(row.get('Fecha_Vencimiento_at02')) and tgt_venc:
+                merged.at[idx, tgt_venc] = row['Fecha_Vencimiento_at02']
                 updated = True
             if updated:
                 incidences.append({
@@ -689,7 +801,7 @@ class AT12TransformationEngine(TransformationEngine):
                 })
 
         # Drop helper columns
-        merged.drop(columns=[c for c in merged.columns if c in ['_key_tdc', '_key_at02', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']], inplace=True, errors='ignore')
+        merged.drop(columns=[c for c in merged.columns if c in ['_key_tdc', '_key_at02', '_join_key', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']], inplace=True, errors='ignore')
 
         # Log only (no incidences for date mapping in TDC)
         self.logger.info(f"Applied date mapping to {len(incidences)} out of {original_count} TDC records")

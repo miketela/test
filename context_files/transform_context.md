@@ -164,8 +164,8 @@ This stage enriches the main dataset by joining it with auxiliary files and appl
 **2.1. `TDC_AT12` (Credit Cards) Processing**
 *   **Objective:** Generate unique guarantee numbers and enrich TDC dates; solo “Tarjeta repetida” produce incidencias.
 *   **Detailed Process (Logic):**
-    1.  **`Numero_Garantia` Generation (por run):**
-        *   Preparación: limpiar `Numero_Garantia` y ordenar por `Id_Documento` ascendente.
+    1.  **`Número_Garantía` (por run):**
+        *   Preparación: limpiar `Número_Garantía` y ordenar por `Id_Documento` ascendente.
         *   Llave: (`Id_Documento`, `Tipo_Facilidad`).
         *   Asignación: secuencia desde 855,500 por run; primera ocurrencia asigna, repetidas reutilizan.
         *   Repetidos por `Numero_Prestamo` dentro de la misma llave: solo log (sin incidencias).
