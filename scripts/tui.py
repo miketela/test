@@ -417,6 +417,33 @@ def _show_run_log_tail(command: str, run_id: str, lines: int = 25) -> None:
         pass
 
 
+def _find_and_add_dependencies(chosen: List[Path], year: int, month: int) -> List[Path]:
+    """Auto-include AT02/AT03 dependencies if not already chosen by the user."""
+    # Avoid modifying the original list
+    chosen_with_deps = list(chosen)
+    
+    # Check which dependencies are already included
+    chosen_subtypes = {infer_subtype(p.name) for p in chosen}
+    
+    # Define required dependencies
+    dependencies = {
+        "AT02_CUENTAS": f"AT02_CUENTAS_{year}{month:02d}01.csv",
+        "AT03_CREDITOS": f"AT03_CREDITOS_{year}{month:02d}01.csv"
+    }
+    
+    # Add missing dependencies
+    for subtype, filename in dependencies.items():
+        if subtype not in chosen_subtypes:
+            dep_path = RAW_DIR / filename
+            if dep_path.exists():
+                print(f"Found and added required dependency: {filename}")
+                chosen_with_deps.append(dep_path)
+            else:
+                print(f"Warning: Required dependency not found: {filename}")
+                
+    return chosen_with_deps
+
+
 def action_transform():
     # New flow: pick files across all runs, then infer period from selection
     global LAST_SELECTED_SUBTYPES, LAST_RUN_ID
@@ -428,6 +455,7 @@ def action_transform():
             available = list_raw_run_files(year, month)
             chosen = [p for p in available if infer_subtype(p.name) in LAST_SELECTED_SUBTYPES]
             if chosen:
+                chosen = _find_and_add_dependencies(chosen, year, month)
                 tmp_raw = prepare_tmp_raw(chosen)
                 try:
                     print(f"Using previous selection (subtypes: {', '.join(sorted(LAST_SELECTED_SUBTYPES))})")
@@ -469,6 +497,7 @@ def action_transform():
         default_period = extract_date_from_name(selected[0].name)
         year = prompt_int("Year", default_period[0] if default_period else 2024)
         month = prompt_int("Month", default_period[1] if default_period else 1)
+        selected = _find_and_add_dependencies(selected, year, month)
         tmp_raw = prepare_tmp_raw_with_run(selected, year, month)
         print(f"Using temporary RAW_DIR: {tmp_raw}")
         rc = run_cmd([sys.executable, str(PROJECT_ROOT / "main.py"),
@@ -518,6 +547,8 @@ def action_transform():
 
     year = int(selected_run[:4])
     month = int(selected_run[4:6])
+
+    chosen = _find_and_add_dependencies(chosen, year, month)
 
     tmp_raw = prepare_tmp_raw(chosen)
     print(f"Using temporary RAW_DIR: {tmp_raw}")

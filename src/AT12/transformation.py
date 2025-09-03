@@ -250,13 +250,12 @@ class AT12TransformationEngine(TransformationEngine):
         self.logger.info(f"Dependency availability - AT02: {has_at02}, AT03: {has_at03}")
         
         # Phase 1a: Independent operations (no AT02/AT03 dependencies)
-        df = self._phase1a_independent_operations(df, context, result, source_data, subtype)
+        df = self._phase1a_independent_operations(df, context, result, subtype)
         
-        # Phase 1b: Dependent operations (require AT02/AT03) - only if dependencies available
-        if has_at02 or has_at03:
-            df = self._phase1b_dependent_operations(df, context, result, source_data, subtype, has_at02, has_at03)
-        else:
-            self.logger.warning("Skipping Phase 1b: AT02/AT03 dependencies not available")
+        # Phase 1b: Dependent operations (operate opportunistically by dependency)
+        # - Fecha Avaluo correction runs only if AT03 is available (gated inside function)
+        # - Poliza-related corrections check for their own inputs and skip if absent
+        df = self._phase1b_dependent_operations(df, context, result, source_data, subtype, has_at02, has_at03)
         
         # Stage 2: Data Enrichment and Generation from Auxiliary Sources
         df = self._stage2_enrichment(df, context, result, source_data, subtype)
@@ -278,9 +277,13 @@ class AT12TransformationEngine(TransformationEngine):
         return df
     
     def _phase1a_independent_operations(self, df: pd.DataFrame, context: TransformationContext, 
-                                      result: TransformationResult, source_data: Dict[str, pd.DataFrame], 
+                                      result: TransformationResult, 
                                       subtype: str = "") -> pd.DataFrame:
-        """Phase 1a: Operations that don't require AT02/AT03 dependencies."""
+        """Phase 1a: Operations that don't require AT02/AT03 dependencies.
+
+        Note: This phase intentionally does not accept or use source_data to
+        ensure it can run when AT02/AT03 are unavailable.
+        """
         self.logger.info("Executing Phase 1a: Independent operations")
         
         # Apply error correction rules that don't require AT02/AT03
@@ -388,36 +391,7 @@ class AT12TransformationEngine(TransformationEngine):
         
         return result
     
-    def _phase1a_independent_operations(self, df: pd.DataFrame, context: TransformationContext, 
-                                      result: TransformationResult, subtype: str = "") -> pd.DataFrame:
-        """Phase 1a: Apply error corrections that do not require AT02/AT03 dependencies."""
-        self.logger.info("Executing Phase 1a: Independent Error Corrections")
-        
-        # Apply error correction rules that don't require external dependencies
-        df = self._apply_eeor_tabular_cleaning(df, context, subtype=subtype)
-        df = self._apply_error_0301_correction(df, context, subtype=subtype, result=result)
-        df = self._apply_coma_finca_empresa_correction(df, context)
-        df = self._apply_fecha_cancelacion_correction(df, context)
-        df = self._apply_inmuebles_sin_finca_correction(df, context)
-        df = self._apply_poliza_auto_comercial_correction(df, context)
-        df = self._apply_inmueble_sin_avaluadora_correction(df, context)
-        
-        self.logger.info("Completed Phase 1a: Independent error corrections")
-        return df
-    
-    def _phase1b_dependent_operations(self, df: pd.DataFrame, context: TransformationContext, 
-                                    result: TransformationResult, source_data: Dict[str, pd.DataFrame], 
-                                    subtype: str = "") -> pd.DataFrame:
-        """Phase 1b: Apply error corrections that require AT02/AT03 dependencies."""
-        self.logger.info("Executing Phase 1b: Dependent Error Corrections")
-        
-        # This method requires source_data for AT03_CREDITOS lookup, and applies only for BASE_AT12
-        if source_data and (subtype == 'BASE_AT12' or subtype == '' or subtype is None):
-            df = self._apply_fecha_avaluo_correction(df, context, source_data, subtype=subtype or 'BASE_AT12')
-        
-        # These methods may use POLIZA_HIPOTECAS_AT12 or other dependency data
-        df = self._apply_inmuebles_sin_poliza_correction(df, context, source_data)
-        df = self._apply_error_poliza_auto_correction(df, context, source_data)
+
         
         self.logger.info("Completed Phase 1b: Dependent error corrections")
         return df
