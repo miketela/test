@@ -347,7 +347,8 @@ class AT12Processor:
                 
                 # Validate file can be read
                 try:
-                    df_sample = self.csv_reader.read_sample(file_path_obj, sample_size=100)
+                    # Use universal reader to support CSV and XLSX
+                    df_sample = self.file_reader.read_sample(file_path_obj, sample_size=100)
                     if df_sample.empty:
                         self.logger.error(f"✗ {filename} failed validation: File appears to be empty")
                         warnings.append(f"{filename}: File appears to be empty")
@@ -355,7 +356,7 @@ class AT12Processor:
                         continue
                     
                     # Count total records
-                    record_count = self.csv_reader.count_records(file_path_obj)
+                    record_count = self.file_reader.count_records(file_path_obj)
                     file_record_counts[filename] = record_count
                     total_records += record_count
                     
