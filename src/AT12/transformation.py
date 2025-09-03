@@ -101,6 +101,25 @@ class AT12TransformationEngine(TransformationEngine):
         except Exception:
             return s.astype(str)
 
+    def _normalize_tipo_garantia_series(self, s: pd.Series) -> pd.Series:
+        """Normalize Tipo_Garantia codes to 4-digit strings (e.g., '207' -> '0207')."""
+        try:
+            out = s.astype(str).str.replace(r"\D", "", regex=True)
+            # Take last 4 digits if longer, pad to 4 if 3
+            out = out.map(lambda x: (x[-4:] if len(x) >= 4 else (x.zfill(4) if len(x) == 3 else x)))
+            return out
+        except Exception:
+            return s.astype(str)
+
+    def _is_empty_like(self, s: pd.Series) -> pd.Series:
+        """Return a boolean mask for empty-like strings: '', NA, 'NA', 'N/A', 'NULL', 'NONE', '-'."""
+        try:
+            up = s.astype(str).str.strip()
+            tokens = {"", "NA", "N/A", "NULL", "NONE", "N.D", "N/D", "-"}
+            return s.isna() | up.eq("") | up.str.upper().isin(tokens)
+        except Exception:
+            return s.isna()
+
     def _enrich_tdc_0507(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply constants and derived fields for Tipo_Garantia = '0507'."""
         if df is None or df.empty:
@@ -1825,7 +1844,8 @@ class AT12TransformationEngine(TransformationEngine):
                 pass
             return df
 
-        mask_0301 = df['Tipo_Garantia'] == '0301'
+        tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
+        mask_0301 = tg_norm == '0301'
         incidences = []
         # Track original Id_Documento for export
         try:
@@ -2321,10 +2341,10 @@ class AT12TransformationEngine(TransformationEngine):
         df = df.copy()
         invalid_values = {"0/0", "1/0", "1/1", "1", "9999/1", "0/1", "0"}
 
-        tg = df['Tipo_Garantia'].astype(str)
+        tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
         idoc = df['Id_Documento'].astype(str)
-        is_invalid = idoc.isna() | (idoc.str.strip() == '') | (idoc.str.strip().isin(invalid_values))
-        mask = tg.isin({'0207', '0208', '0209'}) & is_invalid
+        is_invalid = self._is_empty_like(idoc) | (idoc.str.strip().isin(invalid_values))
+        mask = tg_norm.isin({'0207', '0208', '0209'}) & is_invalid
 
         incidences = []
         try:
@@ -2368,10 +2388,10 @@ class AT12TransformationEngine(TransformationEngine):
             return df
 
         df = df.copy()
-        tg = df['Tipo_Garantia'].astype(str)
+        tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
         nom = df['Nombre_Organismo']
-        is_empty_nom = nom.isna() | (nom.astype(str).str.strip() == '')
-        mask = (tg == '0106') & is_empty_nom
+        is_empty_nom = self._is_empty_like(nom)
+        mask = (tg_norm == '0106') & is_empty_nom
 
         incidences = []
         try:
@@ -2418,10 +2438,10 @@ class AT12TransformationEngine(TransformationEngine):
             return df
 
         df = df.copy()
-        tg = df['Tipo_Garantia'].astype(str)
+        tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
         idoc = df['Id_Documento']
-        is_empty_idoc = idoc.isna() | (idoc.astype(str).str.strip() == '')
-        mask = (tg == '0101') & is_empty_idoc
+        is_empty_idoc = self._is_empty_like(idoc)
+        mask = (tg_norm == '0101') & is_empty_idoc
 
         incidences = []
         try:
@@ -2485,10 +2505,10 @@ class AT12TransformationEngine(TransformationEngine):
             return df
 
         df = df.copy()
-        tg = df['Tipo_Garantia'].astype(str)
+        tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
         nom = df['Nombre_Organismo']
-        is_empty_nom = nom.isna() | (nom.astype(str).str.strip() == '')
-        mask = tg.isin({'0207', '0208', '0209'}) & is_empty_nom
+        is_empty_nom = self._is_empty_like(nom)
+        mask = tg_norm.isin({'0207', '0208', '0209'}) & is_empty_nom
 
         incidences = []
         try:
