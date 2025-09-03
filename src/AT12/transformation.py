@@ -1898,12 +1898,14 @@ class AT12TransformationEngine(TransformationEngine):
         modified_rows: List[Dict[str, Any]] = []
         incident_rows: List[Dict[str, Any]] = []
 
-        # Helper to append a modified record snapshot
-        def _append_modified(idx: int, original: str, corrected: str, rule_label: str):
+        # Helper to append a modified record snapshot (ensure error + transform columns)
+        def _append_modified(idx: int, original: str, corrected: str, rule_label: str, tipo_error: str, transformacion: str):
             row = df.loc[idx].to_dict()
             row['Id_Documento_ORIGINAL'] = original
             row['Id_Documento'] = corrected
             row['Regla'] = rule_label
+            row['tipo de error'] = tipo_error
+            row['transformacion'] = transformacion
             modified_rows.append(row)
 
         # Helper to append an incident snapshot (Spanish error type)
@@ -1911,6 +1913,7 @@ class AT12TransformationEngine(TransformationEngine):
             row = df.loc[idx].to_dict()
             row['Id_Documento'] = id_value
             row['tipo de error'] = tipo_error
+            row['transformacion'] = 'Sin cambio'
             if descripcion:
                 row['descripcion'] = descripcion
             incident_rows.append(row)
@@ -1933,7 +1936,14 @@ class AT12TransformationEngine(TransformationEngine):
                         # Truncate to 15
                         corrected = current[:15]
                         df.at[idx, 'Id_Documento'] = corrected
-                        _append_modified(idx, original, corrected, 'Truncation by R1')
+                        _append_modified(
+                            idx,
+                            original,
+                            corrected,
+                            'Truncation by R1',
+                            'Longitud mayor a 15 con posiciones 13-15 válidas',
+                            'Truncado a 15'
+                        )
                         applied = True
             if applied:
                 continue  # Move to next document (stop cascade for this row)
@@ -1959,7 +1969,14 @@ class AT12TransformationEngine(TransformationEngine):
                 if len(current) > 10:
                     corrected = current[:10]
                     df.at[idx, 'Id_Documento'] = corrected
-                    _append_modified(idx, original, corrected, 'Truncation by R4A')
+                    _append_modified(
+                        idx,
+                        original,
+                        corrected,
+                        'Truncation by R4A',
+                        'Longitud mayor a 10 con "01" en posiciones 9-10',
+                        'Truncado a 10'
+                    )
                 elif len(current) < 10:
                     # Incident: do not modify
                     _append_incident(

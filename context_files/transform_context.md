@@ -105,8 +105,8 @@ This initial stage focuses on correcting structural and format errors in the `BA
   - If length > 10: truncate to first 10 chars; record original and corrected.
 
 - Post‑processing exports (CSV in `transforms/AT12/incidencias/`):
-  - ERROR_0301_MODIFIED_[YYYYMMDD].csv: rows where `Id_Documento` was truncated by RULE_0301_01 or RULE_0301_04; includes original and corrected values plus rule label.
-  - ERROR_0301_INCIDENTES_[YYYYMMDD].csv: incidents flagged by RULE_0301_04 (length < 10 with '01' in positions 9–10), with a `tipo de error` column in Spanish and optional English description.
+  - ERROR_0301_MODIFIED_[YYYYMMDD].csv: rows where `Id_Documento` was truncated by RULE_0301_01 o RULE_0301_04; siempre incluye: `Id_Documento_ORIGINAL`, `Id_Documento` (corregido), `Regla`, `tipo de error` (ES), y `transformacion` (ES, p.ej. "Truncado a 15" / "Truncado a 10").
+  - ERROR_0301_INCIDENTES_[YYYYMMDD].csv: incidentes de RULE_0301_04 (longitud < 10 con '01' en posiciones 9–10); siempre incluye: `tipo de error` (ES) y `transformacion` = "Sin cambio"; puede incluir `descripcion` (EN) si se requiere detalle adicional.
 
 **1.3. COMA EN FINCA EMPRESA**
 *   **Objective:** To remove disallowed characters from the document identifier.
