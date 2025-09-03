@@ -1912,6 +1912,7 @@ class AT12TransformationEngine(TransformationEngine):
         def _append_incident(idx: int, id_value: str, tipo_error: str, descripcion: Optional[str] = None):
             row = df.loc[idx].to_dict()
             row['Id_Documento'] = id_value
+            row['Id_Documento_ORIGINAL'] = id_value
             row['tipo de error'] = tipo_error
             row['transformacion'] = 'Sin cambio'
             if descripcion:
@@ -1966,7 +1967,8 @@ class AT12TransformationEngine(TransformationEngine):
                 sub_9_10 = ''
 
             if sub_9_10 == '01':
-                if len(current) > 10:
+                # Do not truncate 15-char documents in this rule; they should be handled by RULE_0301_01
+                if len(current) > 10 and len(current) != 15:
                     corrected = current[:10]
                     df.at[idx, 'Id_Documento'] = corrected
                     _append_modified(
@@ -1999,6 +2001,17 @@ class AT12TransformationEngine(TransformationEngine):
             # Modified export
             if modified_rows:
                 mod_df = pd.DataFrame(modified_rows)
+                # Reorder columns so Id_Documento_ORIGINAL is adjacent to Id_Documento
+                if 'Id_Documento' in mod_df.columns and 'Id_Documento_ORIGINAL' in mod_df.columns:
+                    cols = list(mod_df.columns)
+                    # Remove ORIGINAL and reinsert after Id_Documento
+                    cols = [c for c in cols if c != 'Id_Documento_ORIGINAL']
+                    try:
+                        idx_pos = cols.index('Id_Documento')
+                        cols = cols[:idx_pos+1] + ['Id_Documento_ORIGINAL'] + cols[idx_pos+1:]
+                        mod_df = mod_df[cols]
+                    except ValueError:
+                        pass
                 mod_filename = f"ERROR_0301_MODIFIED_{period}.csv"
                 mod_path = base_dir / mod_filename
                 mod_df.to_csv(
@@ -2016,6 +2029,16 @@ class AT12TransformationEngine(TransformationEngine):
             # Incidents export
             if incident_rows:
                 inc_df = pd.DataFrame(incident_rows)
+                # Reorder columns so Id_Documento_ORIGINAL is adjacent to Id_Documento
+                if 'Id_Documento' in inc_df.columns and 'Id_Documento_ORIGINAL' in inc_df.columns:
+                    cols = list(inc_df.columns)
+                    cols = [c for c in cols if c != 'Id_Documento_ORIGINAL']
+                    try:
+                        idx_pos = cols.index('Id_Documento')
+                        cols = cols[:idx_pos+1] + ['Id_Documento_ORIGINAL'] + cols[idx_pos+1:]
+                        inc_df = inc_df[cols]
+                    except ValueError:
+                        pass
                 inc_filename = f"ERROR_0301_INCIDENTES_{period}.csv"
                 inc_path = base_dir / inc_filename
                 inc_df.to_csv(

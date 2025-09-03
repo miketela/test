@@ -1,0 +1,3 @@
+"Tipo_Garantia"|"Id_Documento"|"Id_Documento_ORIGINAL"|"Regla"|"tipo de error"|"transformacion"
+"0301"|"100000000000120"|"10000000000012099"|"Truncation by R1"|"Longitud mayor a 15 con posiciones 13-15 válidas"|"Truncado a 15"
+"0301"|"9999999901"|"999999990123"|"Truncation by R4A"|"Longitud mayor a 10 con ""01"" en posiciones 9-10"|"Truncado a 10"
