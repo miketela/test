@@ -2415,7 +2415,11 @@ class AT12TransformationEngine(TransformationEngine):
         return df
     
     def _apply_poliza_auto_comercial_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
-        """1.8. Póliza Auto Comercial: Asignar Nombre_Organismo='700' cuando Tipo_Garantia='0106' y Nombre_Organismo vacío."""
+        """1.8. Póliza Auto Comercial: Asignar Nombre_Organismo='700' cuando
+        Tipo_Garantia in {'0101','0102','0103','0106','0108'} y Nombre_Organismo vacío.
+
+        Nota: Comparación no destructiva; los valores de Tipo_Garantia no se alteran.
+        """
         if 'Tipo_Garantia' not in df.columns or 'Nombre_Organismo' not in df.columns:
             try:
                 self.logger.info("Skipping AUTO_COMERCIAL_ORG_CODE: missing 'Tipo_Garantia' or 'Nombre_Organismo'")
@@ -2427,7 +2431,8 @@ class AT12TransformationEngine(TransformationEngine):
         tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
         nom = df['Nombre_Organismo']
         is_empty_nom = self._is_empty_like(nom)
-        mask = (tg_norm == '0106') & is_empty_nom
+        valid_tg = {'0101', '0102', '0103', '0106', '0108'}
+        mask = tg_norm.isin(valid_tg) & is_empty_nom
 
         incidences = []
         try:

@@ -607,6 +607,11 @@ def _collect_output_files() -> List[Path]:
     mdir = PROJECT_ROOT / "metrics"
     if mdir.exists():
         targets.extend(sorted(mdir.glob("*.json")))
+    # RAW files generated for runs (only __run-* to avoid deleting sources)
+    raw_dir = PROJECT_ROOT / "data" / "raw"
+    if raw_dir.exists():
+        for patt in ["*__run-*.csv", "*__run-*.CSV", "*__run-*.txt", "*__run-*.TXT"]:
+            targets.extend(sorted(raw_dir.glob(patt)))
     return [p for p in targets if p.is_file()]
 
 def action_clean():

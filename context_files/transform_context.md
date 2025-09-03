@@ -143,7 +143,7 @@ This initial stage focuses on correcting structural and format errors in the `BA
 
 **1.8. Póliza Auto Comercial (Commercial Auto Policy)**
 *   **Objective:** To assign an organization code to auto policies that are missing it.
-*   **Input Identification:** Records where `Tipo_Garantia` = '0106' AND `Nombre_Organismo` is empty.
+*   **Input Identification:** Records where `Tipo_Garantia` = '0106,0101,0102,0103,0106,0108' AND `Nombre_Organismo` is empty.
 *   **Detailed Process (Logic):** Assign the constant value '700' to the `Nombre_Organismo` field.
 
 **1.9. Error en Póliza de Auto (Error in Auto Policy)**
