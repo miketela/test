@@ -659,13 +659,13 @@ class AT12Processor:
                 logger=self.logger
             )
 
-            # Load input CSVs into DataFrames and map by subtype
+            # Load input files into DataFrames (CSV/XLSX via UniversalFileReader; TXT handled separately)
             import pandas as pd
             import re as _re
             source_data = {}
             for file_path in input_files:
                 try:
-                    # Read file allowing TXT (pipe/space) without headers and CSV with headers
+                    # Read file allowing TXT (pipe/space) without headers and CSV/XLSX with headers
                     suffix = file_path.suffix.lower()
                     if suffix == '.txt':
                         # Detect delimiter from first non-empty line
@@ -685,8 +685,36 @@ class AT12Processor:
                         else:
                             df = pd.read_csv(file_path, dtype=str, header=None, delim_whitespace=True, engine='python', keep_default_na=False)
                     else:
-                        # CSV path: read with inferred header
-                        df = pd.read_csv(file_path, dtype=str, keep_default_na=False, low_memory=False, encoding_errors='ignore')
+                        # Strict pre-validation for CSV/XLSX to prevent silent data loss
+                        try:
+                            vres = self.file_reader.validate_file(file_path)
+                        except Exception as ve:
+                            raise RuntimeError(f"Validation error for {file_path.name}: {ve}")
+                        if not vres.is_valid:
+                            # Export validation errors for operator review and abort
+                            try:
+                                from ..core.paths import AT12Paths
+                                from ..core.config import Config as _Cfg
+                                cfg = _Cfg()
+                                for k, v in self.config.items():
+                                    if hasattr(cfg, k):
+                                        setattr(cfg, k, v)
+                                paths = AT12Paths.from_config(cfg)
+                                paths.ensure_directories()
+                                import pandas as _pd
+                                rep_rows = []
+                                for msg in (vres.errors or []):
+                                    rep_rows.append({'file': file_path.name, 'severity': 'ERROR', 'message': msg})
+                                for msg in (vres.warnings or []):
+                                    rep_rows.append({'file': file_path.name, 'severity': 'WARNING', 'message': msg})
+                                rep_df = _pd.DataFrame(rep_rows or [{'file': file_path.name, 'severity': 'ERROR', 'message': 'Unknown validation failure'}])
+                                rep_path = paths.incidencias_dir / f"CSV_FORMAT_ERRORS_{file_path.stem.split('__run-')[0]}_{context.period}.csv"
+                                rep_df.to_csv(rep_path, index=False, encoding='utf-8', sep=self.csv_writer.delimiter, quoting=1)
+                                self.logger.error(f"CSV_FORMAT_ERRORS -> {rep_path.name} ({len(rep_df)} messages)")
+                            finally:
+                                raise RuntimeError(f"Strict CSV/XLSX validation failed for {file_path.name}; see CSV_FORMAT_ERRORS report")
+                        # CSV/XLSX path: use universal reader (auto delimiter + encoding)
+                        df = self.file_reader.read_file(file_path)
                 except Exception:
                     # Fallback without encoding_errors for older pandas
                     if file_path.suffix.lower() == '.txt':
@@ -696,7 +724,8 @@ class AT12Processor:
                         except Exception:
                             df = pd.read_csv(file_path, dtype=str, header=None, delim_whitespace=True, engine='python', keep_default_na=False)
                     else:
-                        df = pd.read_csv(file_path, dtype=str, keep_default_na=False, low_memory=False)
+                        # Retry via universal reader again
+                        df = self.file_reader.read_file(file_path)
                 # Derive subtype from filename stem, e.g. BASE_AT12_YYYYMMDD__run-XXXX -> BASE_AT12
                 stem = file_path.stem
                 m = _re.match(r"^(.+)_\d{8}__run-\d+$", stem)
@@ -727,13 +756,12 @@ class AT12Processor:
                             # No schema available: leave as-is
                             pass
                     else:
-                        # Standardize headers for CSV using schema when available
+                        # Standardize headers for CSV/XLSX using schema when available
                         from ..core.header_mapping import HeaderMapper as _HM
                         expected = []
                         if isinstance(self.schema_headers, dict) and subtype in self.schema_headers:
                             expected = list(self.schema_headers[subtype].keys())
                         if expected:
-                            # Build standardization and reconstruct DataFrame in expected order
                             df = _HM.standardize_dataframe_to_schema(df, subtype, expected)
                         else:
                             # Fallback to subtype-specific mapping where defined

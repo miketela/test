@@ -298,6 +298,18 @@ class StrictCSVReader(BaseFileReader):
                 dtype=str,  # Read all as strings initially
                 keep_default_na=False  # Don't convert to NaN
             )
+        except pd.errors.ParserError:
+            # Retry with python engine and tolerant bad line handling
+            return pd.read_csv(
+                file_path,
+                delimiter=delim,
+                encoding=file_encoding,
+                quotechar=self.quotechar,
+                dtype=str,
+                keep_default_na=False,
+                engine='python',
+                on_bad_lines='warn'
+            )
         except UnicodeDecodeError:
             # Try fallback encodings if auto-detection is enabled
             if self.auto_detect_encoding and self.encoding is None:
