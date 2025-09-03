@@ -1,37 +1,3 @@
-
-
-### **Transform Context — AT12 Unified Transformation Process**
-
-#### **Overview**
-The AT12 transformation is a unified ETL process designed to cleanse, enrich, and validate guarantee data. It includes a robust evidence and correction system that allows for complete traceability of all changes applied. This system ensures transparency and facilitates collaboration with the Operations team by treating all steps as part of a single, continuous workflow.
-
-#### **AT12 Validation Approach**
-The system handles multiple, specific validations as sequential stages within one ETL pipeline. Each stage builds upon the previous one, ensuring data integrity flows through the entire process.
-
-*   **System Characteristics:**
-    *   **100% Pandas:** All transformations are handled in pandas.
-    *   **Traceability:** Each transformation is recorded in specific incident files.
-    *   **Unified Workflow:** All transformations are stages within a single, sequential ETL process.
-
-*   **Directory Structure for Transformation:**
-    ```
-    transforms/
-    ├── AT12/
-    │   ├── incidencias/
-    │   │   ├── EEOR_TABULAR_AT12_BASE_20250131.csv
-    │   │   └── ... (other incident files from each stage)
-    │   ├── procesados/ (Intermediate corrected CSVs)
-    │   │   └── AT12_BASE_20250131.csv 
-    │   └── consolidated/ (Final TXT outputs)
-    │       ├── AT12_BASE_20250131.txt
-    │       ├── TDC_AT12_20250131.txt
-    │       ├── SOBREGIRO_AT12_20250131.txt
-    │       └── VALORES_AT12_20250131.txt
-    └── AT03/
-        └── ...
-    ```
-
-
 ### **Transform Context — AT12 Unified Transformation Process**
 
 #### **Overview**
@@ -130,17 +96,18 @@ This initial stage focuses on correcting structural and format errors in the `BA
 *   **Final Action (Output):** The `Fecha_Vencimiento` field contains the corrected date `21001231`.
 
 **1.5. Fecha Avalúo Errada (Incorrect Appraisal Date)**
-*   **Objective:** To standardize inconsistent or improperly formatted appraisal update dates by replacing them with the loan's original start date.
-*   **Input Identification:** Records in `BASE_AT12` meeting ANY of these conditions:
-    *   `Fecha_Ultima_Actualizacion` > (the last day of the processing month).
-    *   The year of `Fecha_Ultima_Actualizacion` < 1985.
-    *   `Fecha_Ultima_Actualizacion` does not follow the `YYYYMMDD` format (e.g., `'2011201'`).
-*   **Detailed Process (Logic):**
-    1.  Perform a `JOIN` (or `LOOKUP`) between the `BASE_AT12` DataFrame and the `AT03_CREDITOS` DataFrame.
-    2.  **Join Keys:** Use `Numero_Prestamo` from `BASE_AT12` and `num_cta` from `AT03_CREDITOS`.
-    3.  For all identified records, retrieve the corresponding value from the `fec_ini_prestamo` field from the joined `AT03_CREDITOS` data.
-    4.  Overwrite the incorrect value in the `Fecha_Ultima_Actualizacion` field in `BASE_AT12` with the retrieved `fec_ini_prestamo` value.
-*   **Final Action (Output):** The `Fecha_Ultima_Actualizacion` field is corrected to equal the loan's start date.
+- Objetivo: Estandarizar fechas de `Fecha_Ultima_Actualizacion` inválidas reemplazándolas por `fec_ini_prestamo`.
+- Alcance: Solo aplica a filas con `Tipo_Garantia` en {'0207','0208','0209'}.
+- Identificación (cualquiera de):
+  - `Fecha_Ultima_Actualizacion` > último día del mes de proceso.
+  - Año de `Fecha_Ultima_Actualizacion` < 1985.
+  - `Fecha_Ultima_Actualizacion` no cumple formato `YYYYMMDD`.
+- Proceso:
+  1. JOIN entre `BASE_AT12` y `AT03_CREDITOS`.
+  2. Llaves: `Numero_Prestamo` ↔ `num_cta` (con clave normalizada para robustez).
+  3. Para registros identificados, traer `fec_ini_prestamo`.
+  4. Sobrescribir `Fecha_Ultima_Actualizacion` con `fec_ini_prestamo`.
+- Acción final: `Fecha_Ultima_Actualizacion` corregida solo para `Tipo_Garantia` 0207/0208/0209.
 
 **1.6. Inmuebles sin Póliza (Properties without Policy)**
 *   **Objective:** To assign a policy type to property guarantees where it is missing.
