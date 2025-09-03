@@ -81,28 +81,31 @@ This initial stage focuses on correcting structural and format errors in the `BA
     3.  Replace any sequence of two or more spaces in the middle of the field with a single space.
 *   **Final Action (Output):** The field is cleaned of all excess whitespace.
 
-**1.2. ERROR_0301: Id_Documento Validation and Correction (Tipo_Garantia = '0301')**
+**1.2. ERROR_0301: Id_Documento Validation and Correction (Tipo_Garantia = '0301') — Derecha→Izquierda**
 
 - Scope: Apply only to rows where `Tipo_Garantia` equals `'0301'`.
 - Cascade: Attempt rules in order; as soon as a rule triggers an action (exclude/modify/incident), stop processing that document for `ERROR_0301`.
+- Indexing: Todas las posiciones se cuentan de derecha a izquierda (1‑based). Los truncados conservan los N últimos caracteres (derecha→izquierda).
 
-- RULE_0301_01 — Positions 13–15 and length handling (1‑based):
-  - If length < 15: rule does not apply; proceed to next rule.
-  - Else extract positions 13–15 and compare to {'100','110','120','130','810'}.
-    - If match and length == 15: document is valid; exclude from further `ERROR_0301`.
-    - If match and length > 15: truncate to first 15 chars; record original and corrected; stop.
+- RULE_0301_01 — Posiciones 13–15 (desde la derecha) y longitud:
+  - Si longitud < 15: no aplica; pasar a la siguiente.
+  - Si longitud ≥ 15: extraer posiciones 13–15 (desde la derecha) y comparar con {'100','110','120','130','810'}.
+    - Si coincide y longitud == 15: documento válido; excluir.
+    - Si coincide y longitud > 15: truncar conservando los últimos 15; registrar original y corregido; detener.
 
-- RULE_0301_02 — Exclusion by sequence '701':
-  - If `'701'` appears anywhere in `Id_Documento`: document is valid; exclude from further `ERROR_0301`.
+- RULE_0301_02 — Exclusión por secuencia '701' en ventanas específicas (der→izq):
+  - Ventanas válidas: posiciones 11–9 o 10–8 (desde la derecha).
+  - Si 701 en 11–9 y longitud ≥ 11: documento válido; excluir (sin exportar).
+  - Si 701 en 10–8 y longitud = 10: documento válido; excluir y agregar al CSV de incidentes como seguimiento (tipo de error: "Secuencia 701 en posiciones 10-8 con longitud 10").
 
-- RULE_0301_03 — Exclusion by positions 9–10 equal to '41' or '42':
-  - If length >= 10 and positions 9–10 ∈ {'41','42'}: document is valid; exclude.
+- RULE_0301_03 — Exclusión por posiciones 9–10 (desde la derecha) ∈ {'41','42'}:
+  - Si longitud ≥ 10 y posiciones 9–10 (desde la derecha) ∈ {'41','42'}: válido; excluir.
 
-- RULE_0301_04 — Remaining documents with '01' in positions 9–10:
-  - If length < 10: do not modify; flag as incident for manual review.
+- RULE_0301_04 — Restantes con '01' en posiciones 9–10 (desde la derecha):
+  - Si longitud < 10: no modificar; incidente para revisión manual.
     - tipo de error: Longitud menor a 10 con "01" en posiciones 9-10
-  - If length == 10: document is valid; exclude.
-  - If length > 10: truncate to first 10 chars; record original and corrected.
+  - Si longitud == 10: válido; excluir.
+  - Si longitud > 10 y != 15: truncar conservando los últimos 10; registrar original y corregido.
 
 - Post‑processing exports (CSV in `transforms/AT12/incidencias/`):
   - ERROR_0301_MODIFIED_[YYYYMMDD].csv: rows where `Id_Documento` was truncated by RULE_0301_01 o RULE_0301_04; siempre incluye: `Id_Documento_ORIGINAL`, `Id_Documento` (corregido), `Regla`, `tipo de error` (ES), y `transformacion` (ES, p.ej. "Truncado a 15" / "Truncado a 10").

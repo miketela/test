@@ -1919,6 +1919,19 @@ class AT12TransformationEngine(TransformationEngine):
                 row['descripcion'] = descripcion
             incident_rows.append(row)
 
+        # Helpers for right-based (derecha→izquierda) positional logic
+        def _slice_from_right(s: str, start_pos_from_right: int, end_pos_from_right_inclusive: int) -> str:
+            """Return substring using 1-based positions counted from the right.
+            Example: positions 13-15 from right => _slice_from_right(s, 15, 13).
+            The returned substring preserves the original left-to-right character order.
+            """
+            n = len(s)
+            # Convert right-positions to left-based indices
+            # start_pos_from_right is the farther one (larger number)
+            left_start = max(0, n - start_pos_from_right)
+            left_end_exclusive = max(0, min(n, n - (end_pos_from_right_inclusive - 1)))
+            return s[left_start:left_end_exclusive]
+
         # Process cascade per matching row
         for idx in df[mask_0301].index.tolist():
             current = str(df.at[idx, 'Id_Documento']) if pd.notna(df.at[idx, 'Id_Documento']) else ''
@@ -1928,14 +1941,15 @@ class AT12TransformationEngine(TransformationEngine):
             clen = len(current)
             applied = False
             if clen >= 15:
-                sub_13_15 = current[12:15]
+                # Right-based: positions 13-15 from the right
+                sub_13_15 = _slice_from_right(current, 15, 13)
                 if sub_13_15 in {'100', '110', '120', '130', '810'}:
                     if clen == 15:
                         # Valid, exclude from further ERROR_0301 processing
                         applied = True
                     elif clen > 15:
-                        # Truncate to 15
-                        corrected = current[:15]
+                        # Truncate to 15 keeping rightmost 15 (derecha→izquierda)
+                        corrected = current[-15:]
                         df.at[idx, 'Id_Documento'] = corrected
                         _append_modified(
                             idx,
@@ -1943,33 +1957,49 @@ class AT12TransformationEngine(TransformationEngine):
                             corrected,
                             'Truncation by R1',
                             'Longitud mayor a 15 con posiciones 13-15 válidas',
-                            'Truncado a 15'
+                            'Truncado (der→izq) a 15'
                         )
                         applied = True
             if applied:
                 continue  # Move to next document (stop cascade for this row)
 
-            # RULE_0301_02: Exclusion by '701' sequence anywhere
-            if '701' in current:
-                # Considered valid; exclude from further processing
+            # RULE_0301_02: Exclusion by '701' sequence at positions 11-9 or 10-8 (from right)
+            matched_701 = False
+            if len(current) >= 11:
+                if _slice_from_right(current, 11, 9) == '701':
+                    matched_701 = True
+            if not matched_701 and len(current) >= 10:
+                if _slice_from_right(current, 10, 8) == '701':
+                    matched_701 = True
+                    if len(current) == 10:
+                        # Report valid 701 at 10-8 with exact length 10 (follow-up record)
+                        _append_incident(
+                            idx,
+                            current,
+                            'Secuencia 701 en posiciones 10-8 con longitud 10',
+                            'Válido por 701; esperado 11 dígitos en casos 701'
+                        )
+            if matched_701:
+                # Exclude from further ERROR_0301 processing
                 continue
 
-            # RULE_0301_03: Exclusion by positions 9-10 ('41' or '42') when length >= 10
+            # RULE_0301_03: Exclusion by positions 9-10 ('41' or '42') when length >= 10 (right-based)
             if len(current) >= 10:
-                sub_9_10 = current[8:10]
+                sub_9_10 = _slice_from_right(current, 10, 9)
                 if sub_9_10 in {'41', '42'}:
                     continue
 
             # RULE_0301_04: Remaining docs with '01' in positions 9-10
             if len(current) >= 10:
-                sub_9_10 = current[8:10]
+                sub_9_10 = _slice_from_right(current, 10, 9)
             else:
                 sub_9_10 = ''
 
             if sub_9_10 == '01':
                 # Do not truncate 15-char documents in this rule; they should be handled by RULE_0301_01
                 if len(current) > 10 and len(current) != 15:
-                    corrected = current[:10]
+                    # Truncate to 10 keeping rightmost 10
+                    corrected = current[-10:]
                     df.at[idx, 'Id_Documento'] = corrected
                     _append_modified(
                         idx,
@@ -1977,7 +2007,7 @@ class AT12TransformationEngine(TransformationEngine):
                         corrected,
                         'Truncation by R4A',
                         'Longitud mayor a 10 con "01" en posiciones 9-10',
-                        'Truncado a 10'
+                        'Truncado (der→izq) a 10'
                     )
                 elif len(current) < 10:
                     # Incident: do not modify
