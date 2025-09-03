@@ -269,7 +269,7 @@ class AT12TransformationEngine(TransformationEngine):
                 df = self._stage4_validation(df, context, result, source_data)
             else:
                 reason = "required identifier column not present" if not ('Numero_Prestamo' in df.columns or 'at_num_de_prestamos' in df.columns) else "AT03_CREDITOS dependency not available"
-                self.logger.debug(f"Skipping Stage 4: {reason}")
+                self.logger.info(f"Skipping Stage 4: {reason}")
         except Exception as e:
             self.logger.warning(f"Stage 4 skipped due to error: {e}")
         
@@ -1810,7 +1810,7 @@ class AT12TransformationEngine(TransformationEngine):
         """1.2. Error 0301: Id_Documento Logic for Mortgage Guarantees (1-based indexing)."""
         if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns:
             try:
-                self.logger.debug("Skipping ERROR_0301: missing required columns 'Tipo_Garantia' or 'Id_Documento'")
+                self.logger.info("Skipping ERROR_0301: missing required columns 'Tipo_Garantia' or 'Id_Documento'")
             except Exception:
                 pass
             return df
@@ -1929,7 +1929,7 @@ class AT12TransformationEngine(TransformationEngine):
         """1.3. COMA EN FINCA EMPRESA: Remove commas from Id_Documento."""
         if 'Id_Documento' not in df.columns:
             try:
-                self.logger.debug("Skipping COMA_EN_FINCA_EMPRESA: missing 'Id_Documento'")
+                self.logger.info("Skipping COMA_EN_FINCA_EMPRESA: missing 'Id_Documento'")
             except Exception:
                 pass
             return df
@@ -1973,7 +1973,7 @@ class AT12TransformationEngine(TransformationEngine):
         """1.4. Fecha Cancelación Errada: Correct erroneous expiration dates."""
         if 'Fecha_Vencimiento' not in df.columns:
             try:
-                self.logger.debug("Skipping FECHA_CANCELACION_ERRADA: missing 'Fecha_Vencimiento'")
+                self.logger.info("Skipping FECHA_CANCELACION_ERRADA: missing 'Fecha_Vencimiento'")
             except Exception:
                 pass
             return df
@@ -2163,7 +2163,7 @@ class AT12TransformationEngine(TransformationEngine):
         # Requisitos mínimos de columnas en la base
         if 'Tipo_Garantia' not in df.columns or 'Tipo_Poliza' not in df.columns or 'Numero_Prestamo' not in df.columns:
             try:
-                self.logger.debug("Skipping INMUEBLES_SIN_TIPO_POLIZA: missing required base columns")
+                self.logger.info("Skipping INMUEBLES_SIN_TIPO_POLIZA: missing required base columns")
             except Exception:
                 pass
             return df
@@ -2275,7 +2275,7 @@ class AT12TransformationEngine(TransformationEngine):
         """
         if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns:
             try:
-                self.logger.debug("Skipping INMUEBLES_SIN_FINCA: missing 'Tipo_Garantia' or 'Id_Documento'")
+                self.logger.info("Skipping INMUEBLES_SIN_FINCA: missing 'Tipo_Garantia' or 'Id_Documento'")
             except Exception:
                 pass
             return df
@@ -2320,7 +2320,7 @@ class AT12TransformationEngine(TransformationEngine):
         """1.8. Póliza Auto Comercial: Asignar Nombre_Organismo='700' cuando Tipo_Garantia='0106' y Nombre_Organismo vacío."""
         if 'Tipo_Garantia' not in df.columns or 'Nombre_Organismo' not in df.columns:
             try:
-                self.logger.debug("Skipping AUTO_COMERCIAL_ORG_CODE: missing 'Tipo_Garantia' or 'Nombre_Organismo'")
+                self.logger.info("Skipping AUTO_COMERCIAL_ORG_CODE: missing 'Tipo_Garantia' or 'Nombre_Organismo'")
             except Exception:
                 pass
             return df
@@ -2366,7 +2366,7 @@ class AT12TransformationEngine(TransformationEngine):
         """
         if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns or 'Numero_Prestamo' not in df.columns:
             try:
-                self.logger.debug("Skipping AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS: missing required base columns")
+                self.logger.info("Skipping AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS: missing required base columns")
             except Exception:
                 pass
             return df
@@ -2425,7 +2425,7 @@ class AT12TransformationEngine(TransformationEngine):
         """1.10. Inmueble sin Avaluadora: Asignar Nombre_Organismo='774' cuando Tipo_Garantia in (0207,0208,0209) y Nombre_Organismo vacío."""
         if 'Tipo_Garantia' not in df.columns or 'Nombre_Organismo' not in df.columns:
             try:
-                self.logger.debug("Skipping INMUEBLE_SIN_AVALUADORA_ORG_CODE: missing 'Tipo_Garantia' or 'Nombre_Organismo'")
+                self.logger.info("Skipping INMUEBLE_SIN_AVALUADORA_ORG_CODE: missing 'Tipo_Garantia' or 'Nombre_Organismo'")
             except Exception:
                 pass
             return df
