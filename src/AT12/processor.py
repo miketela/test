@@ -369,52 +369,39 @@ class AT12Processor:
                     
                     if expected_headers is not None:
                         actual_headers = list(df_sample.columns)
-                        
-                        # Use HeaderMapper for specific subtypes, otherwise use standard normalization
-                        if HeaderMapper.get_mapping_for_subtype(parsed.subtype):
-                            # Use specific header mapping
-                            validation_result = HeaderMapper.validate_mapped_headers(
-                                actual_headers, parsed.subtype, expected_headers
+                        # Build standardization plan against schema for this subtype
+                        try:
+                            # Prepare synonym map for subtype when available
+                            syn_map = HeaderMapper.TDC_AT12_MAPPING if parsed.subtype == 'TDC_AT12' else {}
+                            selectors, std_report, extras = HeaderMapper.build_schema_standardization(
+                                actual_headers, expected_headers, parsed.subtype, synonym_map=syn_map
                             )
-                            
-                            # Log mapping details for debugging
-                            mapping_report = HeaderMapper.get_mapping_report(actual_headers, parsed.subtype)
-                            self.logger.info(f"Header mapping applied for {parsed.subtype}:")
-                            for mapping_info in mapping_report['mappings'][:5]:  # Show first 5 mappings
-                                self.logger.info(f"  '{mapping_info['original']}' -> '{mapping_info['mapped']}' ({mapping_info['method']})")
-                            if len(mapping_report['mappings']) > 5:
-                                self.logger.info(f"  ... and {len(mapping_report['mappings']) - 5} more mappings")
-                            # If mapping-based validation fails, provide extra diagnostics for TDC
-                            if not validation_result.get('is_valid') and parsed.subtype == 'TDC_AT12':
-                                try:
-                                    mapped_headers = HeaderMapper.map_headers(actual_headers, parsed.subtype)
-                                    self.logger.error("TDC header diagnostics: actual vs mapped vs expected")
-                                    self.logger.error(f"  Actual (first 10): {actual_headers[:10]}")
-                                    self.logger.error(f"  Mapped  (first 10): {mapped_headers[:10]}")
-                                    self.logger.error(f"  Expected(first 10): {list(expected_headers)[:10]}")
-                                except Exception:
-                                    pass
-                        else:
-                            # Use standard normalization
-                            normalized_actual = HeaderNormalizer.normalize_headers(actual_headers)
-                            normalized_expected = HeaderNormalizer.normalize_headers(expected_headers)
-                            
-                            validation_result = HeaderNormalizer.validate_headers_against_schema(
-                                normalized_actual, normalized_expected, order_strict=False
+                            # Log concise summary
+                            kept = sum(1 for r in std_report if r.get('action') == 'kept')
+                            added = sum(1 for r in std_report if r.get('action') == 'added')
+                            dropped = sum(1 for r in std_report if r.get('action') == 'dropped')
+                            self.logger.info(
+                                f"Header standardization for {parsed.subtype}: kept={kept}, added={added}, dropped={dropped}"
                             )
-                        
-                        # For TDC, enforce strict schema now (no optional headers)
-
-                        if not validation_result['is_valid']:
-                            self.logger.error(f"✗ {filename} failed header validation:")
-                            for error in validation_result['errors']:
-                                self.logger.error(f"    - {error}")
-                            errors.extend([f"{filename}: {error}" for error in validation_result['errors']])
-                            failed_files.append(filename)
-                            continue
-                        
-                        if validation_result['warnings']:
-                            warnings.extend([f"{filename}: {warning}" for warning in validation_result['warnings']])
+                            # Write mapping report CSV to incidencias folder
+                            try:
+                                from ..core.paths import AT12Paths
+                                from ..core.config import Config as _Cfg
+                                cfg = _Cfg()
+                                for k, v in self.config.items():
+                                    if hasattr(cfg, k):
+                                        setattr(cfg, k, v)
+                                paths = AT12Paths.from_config(cfg)
+                                paths.ensure_directories()
+                                import pandas as _pd
+                                rep_df = _pd.DataFrame(std_report)
+                                rep_path = paths.incidencias_dir / f"HEADER_STANDARDIZATION_{parsed.subtype}_{parsed.date_str}.csv"
+                                rep_df.to_csv(rep_path, index=False, encoding='utf-8', sep=self.csv_writer.delimiter, quoting=1)
+                                self.logger.info(f"HEADER_STANDARDIZATION -> {rep_path.name} ({len(rep_df)} mappings)")
+                            except Exception:
+                                pass
+                        except Exception as _e:
+                            self.logger.warning(f"Header standardization step failed for {filename}: {_e}")
                     
                     valid_files.append(file_path)
                     self.logger.info(f"✓ Validated {filename}: {record_count:,} records")
@@ -739,11 +726,20 @@ class AT12Processor:
                             # No schema available: leave as-is
                             pass
                     else:
-                        if subtype in ("TDC_AT12", "AT02_CUENTAS"):
-                            from ..core.header_mapping import HeaderMapper as _HM
-                            mapped_cols = _HM.map_headers(list(df.columns), subtype)
-                            if mapped_cols and len(mapped_cols) == len(df.columns):
-                                df.columns = mapped_cols
+                        # Standardize headers for CSV using schema when available
+                        from ..core.header_mapping import HeaderMapper as _HM
+                        expected = []
+                        if isinstance(self.schema_headers, dict) and subtype in self.schema_headers:
+                            expected = list(self.schema_headers[subtype].keys())
+                        if expected:
+                            # Build standardization and reconstruct DataFrame in expected order
+                            df = _HM.standardize_dataframe_to_schema(df, subtype, expected)
+                        else:
+                            # Fallback to subtype-specific mapping where defined
+                            if subtype in ("TDC_AT12", "AT02_CUENTAS"):
+                                mapped_cols = _HM.map_headers(list(df.columns), subtype)
+                                if mapped_cols and len(mapped_cols) == len(df.columns):
+                                    df.columns = mapped_cols
                 except Exception:
                     pass
                 source_data[subtype] = df

@@ -4,7 +4,7 @@ Header mapping utilities for SBP Atoms Pipeline.
 Handles specific header mappings for different file types.
 """
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Tuple
 from .naming import HeaderNormalizer
 
 
@@ -187,6 +187,140 @@ class HeaderMapper:
         
         # Fallback: normalized headers (no accents), uppercase for stability
         return [HeaderNormalizer.normalize_headers([header])[0].upper() for header in headers]
+
+    @staticmethod
+    def build_schema_standardization(
+        input_headers: List[str],
+        expected_headers: List[str],
+        subtype: str,
+        synonym_map: Optional[Dict[str, str]] = None,
+        fuzzy: bool = True,
+        fuzzy_threshold: float = 0.78,
+    ) -> Tuple[List[Optional[str]], List[Dict[str, str]], List[str]]:
+        """
+        Build a schema-driven standardization plan: for each expected header, select the best matching
+        input header (or None if missing), preserving expected order. Also return a detailed report and
+        the list of extra input headers that were not used.
+
+        Returns:
+            selectors: list aligned to expected_headers with the chosen input header name or None
+            report: list of dicts with original, mapped, method, exists_in_schema, action
+            extras: input headers that were not selected (to be dropped)
+        """
+        from difflib import SequenceMatcher
+
+        # Normalize helpers
+        def norm(s: str) -> str:
+            return HeaderNormalizer.normalize_headers([s])[0].upper()
+
+        normalized_input = [norm(h) for h in input_headers]
+        used_indices = set()
+
+        # Prepare synonym map (normalized key -> expected header)
+        syn_map = {}
+        if synonym_map:
+            syn_map = {k.upper(): v for k, v in synonym_map.items()}
+
+        # For subtype-specific mapping (e.g., TDC_AT12) reuse known mapping
+        subtype_map = {}
+        if subtype == 'TDC_AT12':
+            subtype_map = HeaderMapper.TDC_AT12_MAPPING
+
+        selectors: List[Optional[str]] = []
+        report: List[Dict[str, str]] = []
+
+        for expected in expected_headers:
+            expected_norm = norm(expected)
+            chosen_idx = None
+            method = 'normalized'
+
+            # 1) Exact normalized match
+            for idx, inh in enumerate(normalized_input):
+                if idx in used_indices:
+                    continue
+                if inh == expected_norm:
+                    chosen_idx = idx
+                    method = 'normalized'
+                    break
+
+            # 2) Subtype mapping by dict/synonyms (input -> expected)
+            if chosen_idx is None and (subtype_map or syn_map):
+                for idx, inh in enumerate(normalized_input):
+                    if idx in used_indices:
+                        continue
+                    # Map input header to expected via subtype_map or synonyms
+                    mapped_expected = subtype_map.get(inh) or syn_map.get(inh)
+                    if mapped_expected and norm(mapped_expected) == expected_norm:
+                        chosen_idx = idx
+                        method = 'dict'
+                        break
+
+            # 3) Fuzzy match to any input header if enabled
+            if chosen_idx is None and fuzzy:
+                best_idx = -1
+                best_score = 0.0
+                for idx, inh in enumerate(normalized_input):
+                    if idx in used_indices:
+                        continue
+                    score = SequenceMatcher(None, expected_norm, inh).ratio()
+                    if score > best_score:
+                        best_score = score
+                        best_idx = idx
+                if best_idx >= 0 and best_score >= fuzzy_threshold:
+                    chosen_idx = best_idx
+                    method = 'fuzzy'
+
+            if chosen_idx is not None:
+                selectors.append(input_headers[chosen_idx])
+                used_indices.add(chosen_idx)
+                report.append({
+                    'original': input_headers[chosen_idx],
+                    'mapped': expected,
+                    'method': method,
+                    'exists_in_schema': 'yes',
+                    'action': 'kept'
+                })
+            else:
+                selectors.append(None)
+                report.append({
+                    'original': '',
+                    'mapped': expected,
+                    'method': 'added',
+                    'exists_in_schema': 'yes',
+                    'action': 'added'
+                })
+
+        # Extras: input headers not used
+        extras = [h for i, h in enumerate(input_headers) if i not in used_indices]
+        for h in extras:
+            report.append({
+                'original': h,
+                'mapped': '',
+                'method': 'extra',
+                'exists_in_schema': 'no',
+                'action': 'dropped'
+            })
+
+        return selectors, report, extras
+
+    @staticmethod
+    def standardize_dataframe_to_schema(df, subtype: str, expected_headers: List[str]):
+        """Return a new DataFrame standardized to expected headers/order for subtype.
+
+        Missing columns are added as empty strings; extra columns are dropped.
+        """
+        import pandas as pd
+
+        selectors, _, _ = HeaderMapper.build_schema_standardization(
+            list(df.columns), expected_headers, subtype
+        )
+        data = {}
+        for exp, sel in zip(expected_headers, selectors):
+            if sel is not None and sel in df.columns:
+                data[exp] = df[sel]
+            else:
+                data[exp] = ''
+        return pd.DataFrame(data)
     
     @staticmethod
     def validate_mapped_headers(original_headers: List[str], subtype: str, 
