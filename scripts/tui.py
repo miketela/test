@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+import time
 from typing import List, Tuple, Optional, Set
 from collections import Counter
 
@@ -328,8 +329,41 @@ def prepare_tmp_source(selected: List[Path]) -> Path:
     if TMP_SOURCE_DIR.exists():
         shutil.rmtree(TMP_SOURCE_DIR)
     TMP_SOURCE_DIR.mkdir(parents=True, exist_ok=True)
+    def _copy_with_retry(src: Path, dst: Path) -> bool:
+        # Try a few silent retries first (handles transient OneDrive locks)
+        for attempt in range(3):
+            try:
+                shutil.copy2(src, dst)
+                return True
+            except PermissionError as e:
+                print(f"[WARN] Permission denied copying '{src.name}' (attempt {attempt+1}/3): {e}")
+                time.sleep(1.5)
+            except OSError as e:
+                print(f"[WARN] OS error copying '{src.name}' (attempt {attempt+1}/3): {e}")
+                time.sleep(1.0)
+        # Interactive fallback
+        while True:
+            ans = input(f"File locked/unavailable: '{src.name}'. [R]etry, [S]kip, [A]bort? ").strip().lower()
+            if ans in {"r", "retry"}:
+                try:
+                    shutil.copy2(src, dst)
+                    return True
+                except Exception as e:
+                    print(f"[ERR] Still cannot copy '{src.name}': {e}")
+                    continue
+            elif ans in {"s", "skip"}:
+                print(f"[INFO] Skipping '{src.name}'")
+                return False
+            elif ans in {"a", "abort"}:
+                raise PermissionError(f"Aborted due to locked file: {src}")
+            else:
+                print("Please type R, S, or A.")
+    copied = 0
     for p in selected:
-        shutil.copy2(p, TMP_SOURCE_DIR / p.name)
+        if _copy_with_retry(p, TMP_SOURCE_DIR / p.name):
+            copied += 1
+    if copied == 0:
+        print("[WARN] No files were copied to temporary SOURCE_DIR.")
     return TMP_SOURCE_DIR
 
 
@@ -337,8 +371,39 @@ def prepare_tmp_raw(selected: List[Path]) -> Path:
     if TMP_RAW_DIR.exists():
         shutil.rmtree(TMP_RAW_DIR)
     TMP_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    def _copy_with_retry(src: Path, dst: Path) -> bool:
+        for attempt in range(3):
+            try:
+                shutil.copy2(src, dst)
+                return True
+            except PermissionError as e:
+                print(f"[WARN] Permission denied copying '{src.name}' (attempt {attempt+1}/3): {e}")
+                time.sleep(1.5)
+            except OSError as e:
+                print(f"[WARN] OS error copying '{src.name}' (attempt {attempt+1}/3): {e}")
+                time.sleep(1.0)
+        while True:
+            ans = input(f"File locked/unavailable: '{src.name}'. [R]etry, [S]kip, [A]bort? ").strip().lower()
+            if ans in {"r", "retry"}:
+                try:
+                    shutil.copy2(src, dst)
+                    return True
+                except Exception as e:
+                    print(f"[ERR] Still cannot copy '{src.name}': {e}")
+                    continue
+            elif ans in {"s", "skip"}:
+                print(f"[INFO] Skipping '{src.name}'")
+                return False
+            elif ans in {"a", "abort"}:
+                raise PermissionError(f"Aborted due to locked file: {src}")
+            else:
+                print("Please type R, S, or A.")
+    copied = 0
     for p in selected:
-        shutil.copy2(p, TMP_RAW_DIR / p.name)
+        if _copy_with_retry(p, TMP_RAW_DIR / p.name):
+            copied += 1
+    if copied == 0:
+        print("[WARN] No files were copied to temporary RAW_DIR.")
     return TMP_RAW_DIR
 
 def prepare_tmp_raw_with_run(selected: List[Path], year: int, month: int) -> Path:
@@ -347,6 +412,34 @@ def prepare_tmp_raw_with_run(selected: List[Path], year: int, month: int) -> Pat
     if TMP_RAW_DIR.exists():
         shutil.rmtree(TMP_RAW_DIR)
     TMP_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    def _copy_with_retry(src: Path, dst: Path) -> bool:
+        for attempt in range(3):
+            try:
+                shutil.copy2(src, dst)
+                return True
+            except PermissionError as e:
+                print(f"[WARN] Permission denied copying '{src.name}' (attempt {attempt+1}/3): {e}")
+                time.sleep(1.5)
+            except OSError as e:
+                print(f"[WARN] OS error copying '{src.name}' (attempt {attempt+1}/3): {e}")
+                time.sleep(1.0)
+        while True:
+            ans = input(f"File locked/unavailable: '{src.name}'. [R]etry, [S]kip, [A]bort? ").strip().lower()
+            if ans in {"r", "retry"}:
+                try:
+                    shutil.copy2(src, dst)
+                    return True
+                except Exception as e:
+                    print(f"[ERR] Still cannot copy '{src.name}': {e}")
+                    continue
+            elif ans in {"s", "skip"}:
+                print(f"[INFO] Skipping '{src.name}'")
+                return False
+            elif ans in {"a", "abort"}:
+                raise PermissionError(f"Aborted due to locked file: {src}")
+            else:
+                print("Please type R, S, or A.")
+    copied = 0
     for p in selected:
         stem = p.stem
         suffix = p.suffix
@@ -355,7 +448,10 @@ def prepare_tmp_raw_with_run(selected: List[Path], year: int, month: int) -> Pat
             target_name = p.name
         else:
             target_name = f"{stem}__run-{run_id}{suffix}"
-        shutil.copy2(p, TMP_RAW_DIR / target_name)
+        if _copy_with_retry(p, TMP_RAW_DIR / target_name):
+            copied += 1
+    if copied == 0:
+        print("[WARN] No files were copied to temporary RAW_DIR.")
     return TMP_RAW_DIR
 
 

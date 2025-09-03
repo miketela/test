@@ -83,29 +83,35 @@ This initial stage focuses on correcting structural and format errors in the `BA
 
 **1.2. ERROR_0301: Id_Documento Validation and Correction (Tipo_Garantia = '0301') — Derecha→Izquierda**
 
-- Scope: Apply only to rows where `Tipo_Garantia` equals `'0301'`.
-- Cascade: Attempt rules in order; as soon as a rule triggers an action (exclude/modify/incident), stop processing that document for `ERROR_0301`.
-- Indexing: Todas las posiciones se cuentan de derecha a izquierda (1‑based). Los truncados conservan los N últimos caracteres (derecha→izquierda).
+- Scope: Solo filas con `Tipo_Garantia = '0301'`.
+- Cascada: Se aplican las reglas en orden; cuando una regla actúa (excluir/modificar/incidente), se detiene el procesamiento del documento para `ERROR_0301`.
+- Indexación: Todas las posiciones se cuentan de derecha a izquierda (1‑based). Los truncados conservan los N últimos caracteres (der→izq).
 
 - RULE_0301_01 — Posiciones 13–15 (desde la derecha) y longitud:
   - Si longitud < 15: no aplica; pasar a la siguiente.
-  - Si longitud ≥ 15: extraer posiciones 13–15 (desde la derecha) y comparar con {'100','110','120','130','810'}.
-    - Si coincide y longitud == 15: documento válido; excluir.
+  - Si longitud ≥ 15: extraer posiciones 13–15 (der→izq) y comparar con {'100','110','120','130','810'}.
+    - Si coincide y longitud == 15: documento válido; excluir de `ERROR_0301`.
     - Si coincide y longitud > 15: truncar conservando los últimos 15; registrar original y corregido; detener.
 
-- RULE_0301_02 — Exclusión por secuencia '701' en ventanas específicas (der→izq):
+- RULE_0301_02 — Secuencia '701' en ventanas específicas (der→izq):
   - Ventanas válidas: posiciones 11–9 o 10–8 (desde la derecha).
   - Si 701 en 11–9 y longitud ≥ 11: documento válido; excluir (sin exportar).
   - Si 701 en 10–8 y longitud = 10: documento válido; excluir y agregar al CSV de incidentes como seguimiento (tipo de error: "Secuencia 701 en posiciones 10-8 con longitud 10").
 
-- RULE_0301_03 — Exclusión por posiciones 9–10 (desde la derecha) ∈ {'41','42'}:
-  - Si longitud ≥ 10 y posiciones 9–10 (desde la derecha) ∈ {'41','42'}: válido; excluir.
+- RULE_0301_03 — Exclusión por posiciones 9–10 (der→izq) ∈ {'41','42'}:
+  - Si longitud ≥ 10 y posiciones 9–10 (der→izq) ∈ {'41','42'}: válido; excluir.
 
-- RULE_0301_04 — Restantes con '01' en posiciones 9–10 (desde la derecha):
+- RULE_0301_04 — Restantes con '01' en posiciones 9–10 (der→izq):
   - Si longitud < 10: no modificar; incidente para revisión manual.
     - tipo de error: Longitud menor a 10 con "01" en posiciones 9-10
   - Si longitud == 10: válido; excluir.
-  - Si longitud > 10 y != 15: truncar conservando los últimos 10; registrar original y corregido.
+  - Si longitud > 10: truncar conservando los últimos 10; registrar original y corregido.
+
+- Exportes (CSV en `transforms/AT12/incidencias/`):
+  - `ERROR_0301_MODIFIED_[YYYYMMDD].csv`: filas modificadas por RULE_0301_01 (truncado a 15) o RULE_0301_04 (truncado a 10). Siempre incluye columnas adyacentes `Id_Documento` y `Id_Documento_ORIGINAL`, y además `Regla`, `tipo de error` (ES) y `transformacion` (ES, p.ej., "Truncado (der→izq) a 15" / "Truncado (der→izq) a 10").
+  - `ERROR_0301_INCIDENTES_[YYYYMMDD].csv`: incidentes de RULE_0301_04 (longitud < 10 con '01' en 9–10) y seguimiento de RULE_0301_02 (701 en 10–8 con longitud 10). Siempre incluye `tipo de error` (ES) y `transformacion` = "Sin cambio"; puede incluir `descripcion` (EN) si se requiere detalle adicional.
+
+- Logging: Se emite un resumen en logs al finalizar el paso `ERROR_0301` con métricas: candidatos, modificados, incidentes, excluidos por cada regla y sin cambio.
 
 - Post‑processing exports (CSV in `transforms/AT12/incidencias/`):
   - ERROR_0301_MODIFIED_[YYYYMMDD].csv: rows where `Id_Documento` was truncated by RULE_0301_01 o RULE_0301_04; siempre incluye: `Id_Documento_ORIGINAL`, `Id_Documento` (corregido), `Regla`, `tipo de error` (ES), y `transformacion` (ES, p.ej. "Truncado a 15" / "Truncado a 10").
