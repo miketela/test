@@ -286,6 +286,12 @@ class AT12TransformationEngine(TransformationEngine):
         """
         self.logger.info("Executing Phase 1a: Independent operations")
         
+        # Harmonize common accented/non-accented headers for BASE_AT12 to maximize rule coverage
+        try:
+            df = self._harmonize_base_headers(df, subtype)
+        except Exception as e:
+            self.logger.debug(f"Header harmonization skipped due to error: {e}")
+        
         # Apply error correction rules that don't require AT02/AT03
         df = self._apply_eeor_tabular_cleaning(df, context, subtype=subtype)
         df = self._apply_error_0301_correction(df, context, subtype=subtype, result=result)
@@ -296,6 +302,53 @@ class AT12TransformationEngine(TransformationEngine):
         df = self._apply_inmueble_sin_avaluadora_correction(df, context)
         
         self.logger.info("Completed Phase 1a: Independent operations")
+        return df
+
+    def _harmonize_base_headers(self, df: pd.DataFrame, subtype: str = "") -> pd.DataFrame:
+        """Create alias columns to handle accented/non-accented variants commonly seen in BASE_AT12.
+
+        This is non-destructive: when only one side exists, create the counterpart so rules can operate
+        regardless of input header accents.
+        """
+        if df is None or df.empty:
+            return df
+        # Only for BASE-like inputs (defensive; harmless otherwise)
+        if subtype and str(subtype).upper() not in {"BASE_AT12", "BASE", "AT12_BASE"}:
+            return df
+
+        df = df.copy()
+        pairs = [
+            ("Numero_Prestamo", "Número_Préstamo"),
+            ("Tipo_Garantia", "Tipo_Garantía"),
+            ("Valor_Garantia", "Valor_Garantía"),
+            ("Fecha_Ultima_Actualizacion", "Fecha_Última_Actualización"),
+            ("Codigo_Banco", "Código_Banco"),
+            ("Codigo_Region", "Código_Región"),
+            ("Numero_Garantia", "Número_Garantía"),
+            ("Numero_Cis_Garantia", "Número_Cis_Garantía"),
+            ("Numero_Ruc_Garantia", "Número_Ruc_Garantía"),
+        ]
+        created = []
+        for a, b in pairs:
+            a_in = a in df.columns
+            b_in = b in df.columns
+            if a_in and not b_in:
+                try:
+                    df[b] = df[a]
+                    created.append(b)
+                except Exception:
+                    pass
+            elif b_in and not a_in:
+                try:
+                    df[a] = df[b]
+                    created.append(a)
+                except Exception:
+                    pass
+        if created:
+            try:
+                self.logger.debug(f"Header harmonization created aliases: {created}")
+            except Exception:
+                pass
         return df
     
     def _phase1b_dependent_operations(self, df: pd.DataFrame, context: TransformationContext, 
@@ -1756,6 +1809,10 @@ class AT12TransformationEngine(TransformationEngine):
     def _apply_error_0301_correction(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "", result: Optional[TransformationResult] = None) -> pd.DataFrame:
         """1.2. Error 0301: Id_Documento Logic for Mortgage Guarantees (1-based indexing)."""
         if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns:
+            try:
+                self.logger.debug("Skipping ERROR_0301: missing required columns 'Tipo_Garantia' or 'Id_Documento'")
+            except Exception:
+                pass
             return df
 
         mask_0301 = df['Tipo_Garantia'] == '0301'
@@ -1871,6 +1928,10 @@ class AT12TransformationEngine(TransformationEngine):
     def _apply_coma_finca_empresa_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
         """1.3. COMA EN FINCA EMPRESA: Remove commas from Id_Documento."""
         if 'Id_Documento' not in df.columns:
+            try:
+                self.logger.debug("Skipping COMA_EN_FINCA_EMPRESA: missing 'Id_Documento'")
+            except Exception:
+                pass
             return df
         
         # Find records with commas in Id_Documento
@@ -1911,6 +1972,10 @@ class AT12TransformationEngine(TransformationEngine):
     def _apply_fecha_cancelacion_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
         """1.4. Fecha Cancelación Errada: Correct erroneous expiration dates."""
         if 'Fecha_Vencimiento' not in df.columns:
+            try:
+                self.logger.debug("Skipping FECHA_CANCELACION_ERRADA: missing 'Fecha_Vencimiento'")
+            except Exception:
+                pass
             return df
         
         incidences = []
@@ -2097,6 +2162,10 @@ class AT12TransformationEngine(TransformationEngine):
         """
         # Requisitos mínimos de columnas en la base
         if 'Tipo_Garantia' not in df.columns or 'Tipo_Poliza' not in df.columns or 'Numero_Prestamo' not in df.columns:
+            try:
+                self.logger.debug("Skipping INMUEBLES_SIN_TIPO_POLIZA: missing required base columns")
+            except Exception:
+                pass
             return df
 
         df = df.copy()
@@ -2205,6 +2274,10 @@ class AT12TransformationEngine(TransformationEngine):
         {"0/0", "1/0", "1/1", "1", "9999/1", "0/1", "0"}.
         """
         if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns:
+            try:
+                self.logger.debug("Skipping INMUEBLES_SIN_FINCA: missing 'Tipo_Garantia' or 'Id_Documento'")
+            except Exception:
+                pass
             return df
 
         df = df.copy()
@@ -2246,6 +2319,10 @@ class AT12TransformationEngine(TransformationEngine):
     def _apply_poliza_auto_comercial_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
         """1.8. Póliza Auto Comercial: Asignar Nombre_Organismo='700' cuando Tipo_Garantia='0106' y Nombre_Organismo vacío."""
         if 'Tipo_Garantia' not in df.columns or 'Nombre_Organismo' not in df.columns:
+            try:
+                self.logger.debug("Skipping AUTO_COMERCIAL_ORG_CODE: missing 'Tipo_Garantia' or 'Nombre_Organismo'")
+            except Exception:
+                pass
             return df
 
         df = df.copy()
@@ -2288,6 +2365,10 @@ class AT12TransformationEngine(TransformationEngine):
         JOIN: Numero_Prestamo (BASE_AT12) = numcred (GARANTIA_AUTOS_AT12) → set Id_Documento = num_poliza.
         """
         if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns or 'Numero_Prestamo' not in df.columns:
+            try:
+                self.logger.debug("Skipping AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS: missing required base columns")
+            except Exception:
+                pass
             return df
 
         df = df.copy()
@@ -2343,6 +2424,10 @@ class AT12TransformationEngine(TransformationEngine):
     def _apply_inmueble_sin_avaluadora_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
         """1.10. Inmueble sin Avaluadora: Asignar Nombre_Organismo='774' cuando Tipo_Garantia in (0207,0208,0209) y Nombre_Organismo vacío."""
         if 'Tipo_Garantia' not in df.columns or 'Nombre_Organismo' not in df.columns:
+            try:
+                self.logger.debug("Skipping INMUEBLE_SIN_AVALUADORA_ORG_CODE: missing 'Tipo_Garantia' or 'Nombre_Organismo'")
+            except Exception:
+                pass
             return df
 
         df = df.copy()
