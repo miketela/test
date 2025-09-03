@@ -113,7 +113,7 @@ def list_source_files() -> List[Path]:
         return []
     files = []
     for p in sorted(SOURCE_DIR.iterdir()):
-        if p.is_file() and p.suffix.lower() in {".csv", ".xlsx"}:
+        if p.is_file() and p.suffix.lower() in {".csv", ".xlsx", ".txt"}:
             files.append(p)
     return files
 
@@ -176,11 +176,15 @@ def list_raw_run_files(year: int, month: int) -> List[Path]:
         return files
     patt_csv = f"*__run-{year}{month:02d}.csv"
     patt_CSV = f"*__run-{year}{month:02d}.CSV"
+    patt_txt = f"*__run-{year}{month:02d}.txt"
+    patt_TXT = f"*__run-{year}{month:02d}.TXT"
     # On Windows (case-insensitive FS), the same file can match both patterns.
     # Collect and then deduplicate by resolved path while preserving order.
     candidates: List[Path] = []
     candidates.extend(sorted(RAW_DIR.glob(patt_csv)))
     candidates.extend(sorted(RAW_DIR.glob(patt_CSV)))
+    candidates.extend(sorted(RAW_DIR.glob(patt_txt)))
+    candidates.extend(sorted(RAW_DIR.glob(patt_TXT)))
     seen = set()
     for p in candidates:
         try:
@@ -200,6 +204,8 @@ def list_all_raw_files() -> List[Path]:
     candidates: List[Path] = []
     candidates.extend(sorted(RAW_DIR.glob("*__run-*.csv")))
     candidates.extend(sorted(RAW_DIR.glob("*__run-*.CSV")))
+    candidates.extend(sorted(RAW_DIR.glob("*__run-*.txt")))
+    candidates.extend(sorted(RAW_DIR.glob("*__run-*.TXT")))
     seen = set()
     for p in candidates:
         try:

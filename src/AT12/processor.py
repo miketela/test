@@ -622,10 +622,14 @@ class AT12Processor:
             # Initialize transformation engine
             transformation_engine = AT12TransformationEngine(config=self.config)
 
-            # Find input files from data directory (case-insensitive extension)
+            # Find input files from data directory (case-insensitive extension, include TXT)
             data_dir = Path(self.config['data_raw_dir'])
-            candidates = list(data_dir.glob(f"*__run-{run_id}.csv"))
-            candidates += list(data_dir.glob(f"*__run-{run_id}.CSV"))
+            candidates = []
+            for patt in [
+                f"*__run-{run_id}.csv", f"*__run-{run_id}.CSV",
+                f"*__run-{run_id}.txt", f"*__run-{run_id}.TXT",
+            ]:
+                candidates.extend(list(data_dir.glob(patt)))
             # Deduplicate for case-insensitive filesystems (e.g., Windows)
             input_files = []
             seen_paths = set()
@@ -673,22 +677,73 @@ class AT12Processor:
             source_data = {}
             for file_path in input_files:
                 try:
-                    # Read all columns as strings to preserve leading zeros and formats
-                    df = pd.read_csv(file_path, dtype=str, keep_default_na=False, low_memory=False, encoding_errors='ignore')
+                    # Read file allowing TXT (pipe/space) without headers and CSV with headers
+                    suffix = file_path.suffix.lower()
+                    if suffix == '.txt':
+                        # Detect delimiter from first non-empty line
+                        sep = None
+                        try:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                for line in f:
+                                    line = line.strip('\n\r')
+                                    if line.strip():
+                                        sep = '|' if '|' in line else None
+                                        break
+                        except Exception:
+                            sep = None
+                        # Default: whitespace if not pipe
+                        if sep == '|':
+                            df = pd.read_csv(file_path, dtype=str, header=None, sep='|', engine='python', keep_default_na=False)
+                        else:
+                            df = pd.read_csv(file_path, dtype=str, header=None, delim_whitespace=True, engine='python', keep_default_na=False)
+                    else:
+                        # CSV path: read with inferred header
+                        df = pd.read_csv(file_path, dtype=str, keep_default_na=False, low_memory=False, encoding_errors='ignore')
                 except Exception:
                     # Fallback without encoding_errors for older pandas
-                    df = pd.read_csv(file_path, dtype=str, keep_default_na=False, low_memory=False)
+                    if file_path.suffix.lower() == '.txt':
+                        # Retry TXT with permissive options
+                        try:
+                            df = pd.read_csv(file_path, dtype=str, header=None, sep='|', engine='python', keep_default_na=False)
+                        except Exception:
+                            df = pd.read_csv(file_path, dtype=str, header=None, delim_whitespace=True, engine='python', keep_default_na=False)
+                    else:
+                        df = pd.read_csv(file_path, dtype=str, keep_default_na=False, low_memory=False)
                 # Derive subtype from filename stem, e.g. BASE_AT12_YYYYMMDD__run-XXXX -> BASE_AT12
                 stem = file_path.stem
                 m = _re.match(r"^(.+)_\d{8}__run-\d+$", stem)
                 subtype = m.group(1) if m else stem
-                # Apply internal uniformity: map headers for known subtypes
+                # Apply internal uniformity: for TXT inputs (no headers), set columns from schema; for CSV, map headers for known subtypes
                 try:
-                    if subtype in ("TDC_AT12", "AT02_CUENTAS"):
-                        from ..core.header_mapping import HeaderMapper as _HM
-                        mapped_cols = _HM.map_headers(list(df.columns), subtype)
-                        if mapped_cols and len(mapped_cols) == len(df.columns):
-                            df.columns = mapped_cols
+                    if file_path.suffix.lower() == '.txt':
+                        # Get expected schema headers for subtype
+                        expected = []
+                        try:
+                            if isinstance(self.schema_headers, dict) and subtype in self.schema_headers:
+                                expected = list(self.schema_headers[subtype].keys())
+                        except Exception:
+                            expected = []
+                        if expected:
+                            # Trim extra columns, pad missing
+                            cols_read = df.shape[1]
+                            need = len(expected)
+                            if cols_read >= need:
+                                df = df.iloc[:, :need]
+                                df.columns = expected
+                            else:
+                                # Assign available headers and add missing as empty
+                                df.columns = expected[:cols_read]
+                                for extra in expected[cols_read:]:
+                                    df[extra] = ''
+                        else:
+                            # No schema available: leave as-is
+                            pass
+                    else:
+                        if subtype in ("TDC_AT12", "AT02_CUENTAS"):
+                            from ..core.header_mapping import HeaderMapper as _HM
+                            mapped_cols = _HM.map_headers(list(df.columns), subtype)
+                            if mapped_cols and len(mapped_cols) == len(df.columns):
+                                df.columns = mapped_cols
                 except Exception:
                     pass
                 source_data[subtype] = df
