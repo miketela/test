@@ -1,0 +1,4 @@
+"Fecha"|"Código_Banco"|"Número_Préstamo"|"Número_Ruc_Garantía"|"Id_Fideicomiso"|"Nombre_Fiduciaria"|"Origen_Garantía"|"Tipo_Garantía"|"Tipo_Facilidad"|"Id_Documento"|"Nombre_Organismo"|"Valor_Inicial"|"Valor_Garantía"|"Valor_Ponderado"|"Tipo_Instrumento"|"Calificación_Emisor"|"Calificación_Emisión"|"País_Emisión"|"Fecha_Última_Actualización"|"Fecha_Vencimiento"|"Tipo_Poliza"|"Código_Región"|"Número_Garantía"|"Número_Cis_Garantía"|"Moneda"|"Importe"|"Descripción de la Garantía"|"ACMON"|"ACIMP2"|"ACNGA"|"ACCIS"|"LIMITE"|"SALDO"
+"20240131"|"001"|"0001"|"RUC1"|""|""|""|""|"01"|"000123"|""|""|""|""|""|""|""|""|"20230401"|"20251231"|""|""|"855500"|""|""|""|""|""|""|""|""|""|""
+"20240131"|"001"|"0002"|"RUC1"|""|""|""|""|"01"|"123"|""|""|""|""|""|""|""|""|"20230401"|"20251231"|""|""|"855501"|""|""|""|""|""|""|""|""|""|""
+"20240131"|"001"|"0003"|"RUC2"|""|""|""|""|"02"|"ABC-456"|""|""|""|""|""|""|""|""|"20230501"|"20251231"|""|""|"855502"|""|""|""|""|""|""|""|""|""|""

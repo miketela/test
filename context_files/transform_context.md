@@ -81,24 +81,32 @@ This initial stage focuses on correcting structural and format errors in the `BA
     3.  Replace any sequence of two or more spaces in the middle of the field with a single space.
 *   **Final Action (Output):** The field is cleaned of all excess whitespace.
 
-**1.2. ERROR_0301: Id_Documento (Tipo_Garantia = '0301')**
+**1.2. ERROR_0301: Id_Documento Validation and Correction (Tipo_Garantia = '0301')**
 
-- Objetivo: Validar y corregir `Id_Documento` con reglas por posición (indexación 1‑based).
-- Alcance: Solo filas con `Tipo_Garantia = '0301'`.
-- Lógica (por fila):
-  - Sub‑Regla 1 — Posiciones 9–10 ∈ {'01','41','42'}:
-    - Si longitud > 10: truncar a los primeros 10 caracteres.
-    - Si longitud < 10: no modificar; marcar para revisión manual.
-  - Sub‑Regla 2 — Secuencia '701' según longitud:
-    - Si longitud = 10: revisar posiciones 8–10.
-    - Si longitud = 11: revisar posiciones 9–11.
-    - Si la secuencia es '701': el valor es válido y no se modifica; si longitud = 10, registrar para seguimiento.
-  - Sub‑Regla 3 — Longitud 15 y otras:
-    - Si longitud > 15: truncar a 15 (registrar original y corregido).
-    - Si 0 < longitud < 15: registrar desviación (sin modificar).
-    - Si longitud = 15: validar posiciones 13–15 ∈ {'100','110','120','123','810'} (sin modificar).
-- Exportación de incidencias:
-  - Se exporta `ERROR_0301_[SUBTIPO]_[YYYYMMDD].csv` solo para filas donde `Id_Documento` cambió.
+- Scope: Apply only to rows where `Tipo_Garantia` equals `'0301'`.
+- Cascade: Attempt rules in order; as soon as a rule triggers an action (exclude/modify/incident), stop processing that document for `ERROR_0301`.
+
+- RULE_0301_01 — Positions 13–15 and length handling (1‑based):
+  - If length < 15: rule does not apply; proceed to next rule.
+  - Else extract positions 13–15 and compare to {'100','110','120','130','810'}.
+    - If match and length == 15: document is valid; exclude from further `ERROR_0301`.
+    - If match and length > 15: truncate to first 15 chars; record original and corrected; stop.
+
+- RULE_0301_02 — Exclusion by sequence '701':
+  - If `'701'` appears anywhere in `Id_Documento`: document is valid; exclude from further `ERROR_0301`.
+
+- RULE_0301_03 — Exclusion by positions 9–10 equal to '41' or '42':
+  - If length >= 10 and positions 9–10 ∈ {'41','42'}: document is valid; exclude.
+
+- RULE_0301_04 — Remaining documents with '01' in positions 9–10:
+  - If length < 10: do not modify; flag as incident for manual review.
+    - tipo de error: Longitud menor a 10 con "01" en posiciones 9-10
+  - If length == 10: document is valid; exclude.
+  - If length > 10: truncate to first 10 chars; record original and corrected.
+
+- Post‑processing exports (CSV in `transforms/AT12/incidencias/`):
+  - ERROR_0301_MODIFIED_[YYYYMMDD].csv: rows where `Id_Documento` was truncated by RULE_0301_01 or RULE_0301_04; includes original and corrected values plus rule label.
+  - ERROR_0301_INCIDENTES_[YYYYMMDD].csv: incidents flagged by RULE_0301_04 (length < 10 with '01' in positions 9–10), with a `tipo de error` column in Spanish and optional English description.
 
 **1.3. COMA EN FINCA EMPRESA**
 *   **Objective:** To remove disallowed characters from the document identifier.

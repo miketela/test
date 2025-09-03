@@ -1872,7 +1872,12 @@ class AT12TransformationEngine(TransformationEngine):
         return df
     
     def _apply_error_0301_correction(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "", result: Optional[TransformationResult] = None) -> pd.DataFrame:
-        """1.2. Error 0301: Id_Documento Logic for Mortgage Guarantees (1-based indexing)."""
+        """ERROR_0301: Cascading Id_Documento rules for Tipo_Garantia == '0301'.
+
+        Implements RULE_0301_01 through RULE_0301_04 as a cascade. Only rows with
+        Tipo_Garantia exactly '0301' are considered. Two exports are produced after
+        processing: modified documents and incident documents.
+        """
         if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns:
             try:
                 self.logger.info("Skipping ERROR_0301: missing required columns 'Tipo_Garantia' or 'Id_Documento'")
@@ -1882,119 +1887,134 @@ class AT12TransformationEngine(TransformationEngine):
 
         tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
         mask_0301 = tg_norm == '0301'
-        incidences = []
-        # Track original Id_Documento for export
+
+        # Track original Id_Documento for change detection
         try:
-            orig_id_series = pd.Series(index=df.index, dtype=object)
+            orig_id_series = df['Id_Documento'].astype(str).copy()
         except Exception:
-            orig_id_series = None
+            orig_id_series = df['Id_Documento'].copy()
 
-        for idx in df[mask_0301].index:
-            id_documento = str(df.loc[idx, 'Id_Documento']) if pd.notna(df.loc[idx, 'Id_Documento']) else ''
-            original_id = id_documento
-            if orig_id_series is not None:
-                orig_id_series.loc[idx] = original_id
+        # Collections for exports
+        modified_rows: List[Dict[str, Any]] = []
+        incident_rows: List[Dict[str, Any]] = []
 
-            # Sub-Rule 1: positions 9-10 equal '01' or '41' or '42' → ensure length exactly 10
-            cond_len_ge_10 = len(id_documento) >= 10
-            pos_9_10 = id_documento[8:10] if cond_len_ge_10 else ''
-            if pos_9_10 in {'01', '41', '42'}:
-                if len(id_documento) > 10:
-                    # Extract the first 10 characters
-                    df.loc[idx, 'Id_Documento'] = id_documento[:10]
-                elif len(id_documento) < 10:
-                    # Flag manual review; do not modify value
-                    self._add_incidence(
-                        incidence_type=IncidenceType.VALIDATION_FAILURE,
-                        severity=IncidenceSeverity.HIGH,
-                        rule_id='Error_0301_Manual_Review_Required',
-                        description='Length < 10 for Sub-Rule 1 (positions 9-10 in {01,41,42})',
-                        data={
-                            'record_index': int(idx),
-                            'column_name': 'Id_Documento',
-                            'original_value': original_id
-                        }
-                    )
-                    incidences.append({
-                        'Index': idx,
-                        'Original_Id_Documento': original_id,
-                        'Rule': 'Error_0301_Manual_Review_Required',
-                        'Reason': 'Length < 10 for Sub-Rule 1'
-                    })
+        # Helper to append a modified record snapshot
+        def _append_modified(idx: int, original: str, corrected: str, rule_label: str):
+            row = df.loc[idx].to_dict()
+            row['Id_Documento_ORIGINAL'] = original
+            row['Id_Documento'] = corrected
+            row['Regla'] = rule_label
+            modified_rows.append(row)
 
-            # Sub-Rule 2: Type 701 detection by position depending on length
-            elif len(id_documento) in (10, 11):
-                if len(id_documento) == 10:
-                    seq = id_documento[7:10]  # positions 8-10
-                else:
-                    seq = id_documento[8:11]  # positions 9-11
+        # Helper to append an incident snapshot (Spanish error type)
+        def _append_incident(idx: int, id_value: str, tipo_error: str, descripcion: Optional[str] = None):
+            row = df.loc[idx].to_dict()
+            row['Id_Documento'] = id_value
+            row['tipo de error'] = tipo_error
+            if descripcion:
+                row['descripcion'] = descripcion
+            incident_rows.append(row)
 
-                if seq == '701':
-                    # Valid; include 10-char case in follow-up report
-                    if len(id_documento) == 10:
-                        incidences.append({
-                            'Index': idx,
-                            'Id_Documento': id_documento,
-                            'Rule': 'Error_0301_Follow_Up_Report',
-                            'Reason': 'Length 10 with sequence 701 at positions 8-10'
-                        })
-                    # No modification required
+        # Process cascade per matching row
+        for idx in df[mask_0301].index.tolist():
+            current = str(df.at[idx, 'Id_Documento']) if pd.notna(df.at[idx, 'Id_Documento']) else ''
+            original = str(orig_id_series.iloc[idx]) if idx in orig_id_series.index else current
 
-            # Sub-Rule 3: Length 15 handling and validation of positions 13-15
+            # RULE_0301_01: Positions 13-15 and length handling
+            clen = len(current)
+            applied = False
+            if clen >= 15:
+                sub_13_15 = current[12:15]
+                if sub_13_15 in {'100', '110', '120', '130', '810'}:
+                    if clen == 15:
+                        # Valid, exclude from further ERROR_0301 processing
+                        applied = True
+                    elif clen > 15:
+                        # Truncate to 15
+                        corrected = current[:15]
+                        df.at[idx, 'Id_Documento'] = corrected
+                        _append_modified(idx, original, corrected, 'Truncation by R1')
+                        applied = True
+            if applied:
+                continue  # Move to next document (stop cascade for this row)
+
+            # RULE_0301_02: Exclusion by '701' sequence anywhere
+            if '701' in current:
+                # Considered valid; exclude from further processing
+                continue
+
+            # RULE_0301_03: Exclusion by positions 9-10 ('41' or '42') when length >= 10
+            if len(current) >= 10:
+                sub_9_10 = current[8:10]
+                if sub_9_10 in {'41', '42'}:
+                    continue
+
+            # RULE_0301_04: Remaining docs with '01' in positions 9-10
+            if len(current) >= 10:
+                sub_9_10 = current[8:10]
             else:
-                if len(id_documento) > 15:
-                    # Truncate to first 15 and report
-                    df.loc[idx, 'Id_Documento'] = id_documento[:15]
-                    incidences.append({
-                        'Index': idx,
-                        'Original_Id_Documento': original_id,
-                        'Corrected_Id_Documento': id_documento[:15],
-                        'Rule': 'Error_0301_Truncate_To_15'
-                    })
-                elif 0 < len(id_documento) < 15:
-                    # Report deviation; do not modify
-                    incidences.append({
-                        'Index': idx,
-                        'Original_Id_Documento': original_id,
-                        'Rule': 'Error_0301_Length_Less_Than_15'
-                    })
-                elif len(id_documento) == 15:
-                    # Validate positions 13-15 (no modification regardless of match)
-                    pos_13_15 = id_documento[12:15]
-                    _ = pos_13_15 in {'100', '110', '120', '123', '810'}
-                    # No action required per spec; keep for possible future use
+                sub_9_10 = ''
 
-            # Log changes (any modification)
-            if df.loc[idx, 'Id_Documento'] != original_id:
-                incidences.append({
-                    'Index': idx,
-                    'Original_Id_Documento': original_id,
-                    'Corrected_Id_Documento': df.loc[idx, 'Id_Documento'],
-                    'Rule': 'Error_0301_Correction'
-                })
+            if sub_9_10 == '01':
+                if len(current) > 10:
+                    corrected = current[:10]
+                    df.at[idx, 'Id_Documento'] = corrected
+                    _append_modified(idx, original, corrected, 'Truncation by R4A')
+                elif len(current) < 10:
+                    # Incident: do not modify
+                    _append_incident(
+                        idx,
+                        current,
+                        'Longitud menor a 10 con "01" en posiciones 9-10',
+                        'Length less than 10 while expecting "01" at positions 9-10'
+                    )
+                else:
+                    # Exactly 10 and '01' in positions 9-10: valid; exclude
+                    pass
+            # Else: no action for other cases (remain unchanged)
 
-        if incidences:
-            self._store_incidences('ERROR_0301', incidences, context)
-            self.logger.info(f"Applied Error 0301 correction/incidences to {len(incidences)} records")
-
-        # Export only rows where Id_Documento actually changed (avoid exporting all 0301)
+        # Exports for ERROR_0301
         try:
-            if mask_0301.any() and orig_id_series is not None:
-                current_id = df['Id_Documento'].astype(str)
-                orig_id = orig_id_series.astype(str)
-                changed_mask = mask_0301 & (current_id != orig_id)
-                if changed_mask.any():
-                    original_columns = {'Id_Documento': orig_id_series}
-                    self._export_error_subset(df, changed_mask, subtype or 'BASE_AT12', 'ERROR_0301', context, result, original_columns=original_columns)
-        except Exception:
-            pass
+            period = context.period
+            base_dir = context.paths.incidencias_dir
+            base_dir.mkdir(parents=True, exist_ok=True)
 
-        else:
-            try:
-                cnt = int(mask_0301.sum())
-                self.logger.info(f"ERROR_0301: no changes (candidates={cnt})")
-            except Exception:
-                pass
+            # Modified export
+            if modified_rows:
+                mod_df = pd.DataFrame(modified_rows)
+                mod_filename = f"ERROR_0301_MODIFIED_{period}.csv"
+                mod_path = base_dir / mod_filename
+                mod_df.to_csv(
+                    mod_path,
+                    index=False,
+                    encoding='utf-8',
+                    sep=getattr(context.config, 'output_delimiter', '|'),
+                    quoting=1,
+                    date_format='%Y%m%d'
+                )
+                if result is not None and hasattr(result, 'incidence_files'):
+                    result.incidence_files.append(mod_path)
+                self.logger.info(f"ERROR_0301 -> {mod_path.name} ({len(mod_df)} records)")
+
+            # Incidents export
+            if incident_rows:
+                inc_df = pd.DataFrame(incident_rows)
+                inc_filename = f"ERROR_0301_INCIDENTES_{period}.csv"
+                inc_path = base_dir / inc_filename
+                inc_df.to_csv(
+                    inc_path,
+                    index=False,
+                    encoding='utf-8',
+                    sep=getattr(context.config, 'output_delimiter', '|'),
+                    quoting=1,
+                    date_format='%Y%m%d'
+                )
+                if result is not None and hasattr(result, 'incidence_files'):
+                    result.incidence_files.append(inc_path)
+                self.logger.info(f"ERROR_0301 -> {inc_path.name} ({len(inc_df)} records)")
+        except Exception as e:
+            self.logger.warning(f"ERROR_0301 exports failed: {e}")
+
         return df
     
     def _apply_coma_finca_empresa_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:

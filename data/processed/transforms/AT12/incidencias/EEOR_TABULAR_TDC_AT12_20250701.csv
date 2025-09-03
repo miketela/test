@@ -1,0 +1,2 @@
+"Index"|"Column"|"Original_Value"|"Cleaned_Value"|"Rule"
+"0"|"Nombre_Fiduciaria"|"   FIDU   "|"FIDU"|"EEOR_TABULAR_WHITESPACE_CLEANING"

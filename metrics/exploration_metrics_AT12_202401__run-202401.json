@@ -1,0 +1,1442 @@
+{
+  "atom": "AT12",
+  "period": "2024-01",
+  "run_id": "202401",
+  "timestamp": "2025-09-02T14:48:08.061231",
+  "files_analyzed": 2,
+  "total_records": 6,
+  "file_metrics": {
+    "AT02_CUENTAS_20240131__run-202401.CSV": {
+      "file_path": "/Users/macbook/Documents/newAtoms/data/raw/AT02_CUENTAS_20240131__run-202401.CSV",
+      "file_name": "AT02_CUENTAS_20240131__run-202401.CSV",
+      "file_size": 823,
+      "file_mtime": "2025-09-02T14:47:50.006837",
+      "file_sha256": "decc1eb276f4c1f62528b4b1ca1bdfb50d95509d9cff04b00b8e4e020847aaaa",
+      "row_count": 3,
+      "column_count": 31,
+      "headers": [
+        "Fecha",
+        "Cod_banco",
+        "Cod_Subsidiaria",
+        "Tipo_Deposito",
+        "Tipo_Cliente",
+        "Tasa",
+        "Origen",
+        "Cod_region",
+        "Fecha_Inicio",
+        "Fecha_Vencimiento",
+        "Monto",
+        "Monto_Pignorado",
+        "Numero_renovacion",
+        "Fecha_Renovacion",
+        "Intereses_por_Pagar",
+        "Periodicidad_pago_intereses",
+        "Identificacion_cliente",
+        "Identificacion_Cuenta",
+        "Actividad",
+        "Tamano_Empresa",
+        "Genero",
+        "Beneficiario_declarado",
+        "Estatus_actividad_movimiento",
+        "Identificacion_cliente_2",
+        "Tipo_Producto",
+        "Subproducto",
+        "Fecha_proceso",
+        "Moneda",
+        "Importe",
+        "Importe_por_pagar",
+        "Segmento"
+      ],
+      "column_metrics": [
+        {
+          "name": "Fecha",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "20240131",
+              3
+            ]
+          ],
+          "min_length": 8,
+          "max_length": 8,
+          "avg_length": 8.0,
+          "min_value": "20240131",
+          "max_value": "20240131",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Cod_banco",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "001",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "001",
+          "max_value": "001",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Cod_Subsidiaria",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "00",
+              3
+            ]
+          ],
+          "min_length": 2,
+          "max_length": 2,
+          "avg_length": 2.0,
+          "min_value": "00",
+          "max_value": "00",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Tipo_Deposito",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "01",
+              3
+            ]
+          ],
+          "min_length": 2,
+          "max_length": 2,
+          "avg_length": 2.0,
+          "min_value": "01",
+          "max_value": "01",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Tipo_Cliente",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "01",
+              3
+            ]
+          ],
+          "min_length": 2,
+          "max_length": 2,
+          "avg_length": 2.0,
+          "min_value": "01",
+          "max_value": "01",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Tasa",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "0.0",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "0.0",
+          "max_value": "0.0",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Origen",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "0",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "0",
+          "max_value": "0",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Cod_region",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "01",
+              3
+            ]
+          ],
+          "min_length": 2,
+          "max_length": 2,
+          "avg_length": 2.0,
+          "min_value": "01",
+          "max_value": "01",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Fecha_Inicio",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "20230101",
+              1
+            ],
+            [
+              "20230401",
+              1
+            ],
+            [
+              "20230501",
+              1
+            ]
+          ],
+          "min_length": 8,
+          "max_length": 8,
+          "avg_length": 8.0,
+          "min_value": "20230101",
+          "max_value": "20230501",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Fecha_Vencimiento",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "20251231",
+              2
+            ],
+            [
+              "20231231",
+              1
+            ]
+          ],
+          "min_length": 8,
+          "max_length": 8,
+          "avg_length": 8.0,
+          "min_value": "20231231",
+          "max_value": "20251231",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Monto",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "0",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "0",
+          "max_value": "0",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Monto_Pignorado",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "0",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "0",
+          "max_value": "0",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Numero_renovacion",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "0",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "0",
+          "max_value": "0",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Fecha_Renovacion",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Intereses_por_Pagar",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "0",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "0",
+          "max_value": "0",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Periodicidad_pago_intereses",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "0",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "0",
+          "max_value": "0",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Identificacion_cliente",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "CL1",
+              2
+            ],
+            [
+              "CL2",
+              1
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "CL1",
+          "max_value": "CL2",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Identificacion_Cuenta",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "000123",
+              1
+            ],
+            [
+              "123",
+              1
+            ],
+            [
+              "ABC456",
+              1
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 6,
+          "avg_length": 5.0,
+          "min_value": "000123",
+          "max_value": "ABC456",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Actividad",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "ACT",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "ACT",
+          "max_value": "ACT",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Tamano_Empresa",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "SME",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "SME",
+          "max_value": "SME",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Genero",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "M",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "M",
+          "max_value": "M",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Beneficiario_declarado",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "NULL",
+              3
+            ]
+          ],
+          "min_length": 4,
+          "max_length": 4,
+          "avg_length": 4.0,
+          "min_value": "NULL",
+          "max_value": "NULL",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Estatus_actividad_movimiento",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "ACT",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "ACT",
+          "max_value": "ACT",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Identificacion_cliente_2",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "CL1P",
+              2
+            ],
+            [
+              "CL2P",
+              1
+            ]
+          ],
+          "min_length": 4,
+          "max_length": 4,
+          "avg_length": 4.0,
+          "min_value": "CL1P",
+          "max_value": "CL2P",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Tipo_Producto",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "TP1",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "TP1",
+          "max_value": "TP1",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Subproducto",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "SP1",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "SP1",
+          "max_value": "SP1",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Fecha_proceso",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "20240101",
+              3
+            ]
+          ],
+          "min_length": 8,
+          "max_length": 8,
+          "avg_length": 8.0,
+          "min_value": "20240101",
+          "max_value": "20240101",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Moneda",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "USD",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "USD",
+          "max_value": "USD",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Importe",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "0",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "0",
+          "max_value": "0",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Importe_por_pagar",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "0",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": "0",
+          "max_value": "0",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Segmento",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "PRE",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "PRE",
+          "max_value": "PRE",
+          "mean_value": null,
+          "std_value": null
+        }
+      ],
+      "validation_warnings": [],
+      "validation_errors": [],
+      "processing_time": 0.015842199325561523
+    },
+    "TDC_AT12_20240131__run-202401.CSV": {
+      "file_path": "/Users/macbook/Documents/newAtoms/data/raw/TDC_AT12_20240131__run-202401.CSV",
+      "file_name": "TDC_AT12_20240131__run-202401.CSV",
+      "file_size": 727,
+      "file_mtime": "2025-09-02T14:47:50.004509",
+      "file_sha256": "b40a486a8ddc2e1c739d7fefdf37636d378ac99018cd0aadaa5f3667e2b97cad",
+      "row_count": 3,
+      "column_count": 33,
+      "headers": [
+        "Fecha",
+        "Código_Banco",
+        "Número_Préstamo",
+        "Número_Ruc_Garantía",
+        "Id_Fideicomiso",
+        "Nombre_Fiduciaria",
+        "Origen_Garantía",
+        "Tipo_Garantía",
+        "Tipo_Facilidad",
+        "Id_Documento",
+        "Nombre_Organismo",
+        "Valor_Inicial",
+        "Valor_Garantía",
+        "Valor_Ponderado",
+        "Tipo_Instrumento",
+        "Calificación_Emisor",
+        "Calificación_Emisión",
+        "País_Emisión",
+        "Fecha_Última_Actualización",
+        "Fecha_Vencimiento",
+        "Tipo_Poliza",
+        "Código_Región",
+        "Número_Garantía",
+        "Número_Cis_Garantía",
+        "Moneda",
+        "Importe",
+        "Descripción de la Garantía",
+        "ACMON",
+        "ACIMP2",
+        "ACNGA",
+        "ACCIS",
+        "LIMITE",
+        "SALDO"
+      ],
+      "column_metrics": [
+        {
+          "name": "Fecha",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "20240131",
+              3
+            ]
+          ],
+          "min_length": 8,
+          "max_length": 8,
+          "avg_length": 8.0,
+          "min_value": "20240131",
+          "max_value": "20240131",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Código_Banco",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "001",
+              3
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 3,
+          "avg_length": 3.0,
+          "min_value": "001",
+          "max_value": "001",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Número_Préstamo",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "0001",
+              1
+            ],
+            [
+              "0002",
+              1
+            ],
+            [
+              "0003",
+              1
+            ]
+          ],
+          "min_length": 4,
+          "max_length": 4,
+          "avg_length": 4.0,
+          "min_value": "0001",
+          "max_value": "0003",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Número_Ruc_Garantía",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "RUC1",
+              2
+            ],
+            [
+              "RUC2",
+              1
+            ]
+          ],
+          "min_length": 4,
+          "max_length": 4,
+          "avg_length": 4.0,
+          "min_value": "RUC1",
+          "max_value": "RUC2",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Id_Fideicomiso",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Nombre_Fiduciaria",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Origen_Garantía",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Tipo_Garantía",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Tipo_Facilidad",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 2,
+          "top_values": [
+            [
+              "01",
+              2
+            ],
+            [
+              "02",
+              1
+            ]
+          ],
+          "min_length": 2,
+          "max_length": 2,
+          "avg_length": 2.0,
+          "min_value": "01",
+          "max_value": "02",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Id_Documento",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 3,
+          "top_values": [
+            [
+              "000123",
+              1
+            ],
+            [
+              "123",
+              1
+            ],
+            [
+              "ABC-456",
+              1
+            ]
+          ],
+          "min_length": 3,
+          "max_length": 7,
+          "avg_length": 5.33,
+          "min_value": "000123",
+          "max_value": "ABC-456",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Nombre_Organismo",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Valor_Inicial",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Valor_Garantía",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Valor_Ponderado",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Tipo_Instrumento",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Calificación_Emisor",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Calificación_Emisión",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "País_Emisión",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Fecha_Última_Actualización",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "20240101",
+              3
+            ]
+          ],
+          "min_length": 8,
+          "max_length": 8,
+          "avg_length": 8.0,
+          "min_value": "20240101",
+          "max_value": "20240101",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Fecha_Vencimiento",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "20241231",
+              3
+            ]
+          ],
+          "min_length": 8,
+          "max_length": 8,
+          "avg_length": 8.0,
+          "min_value": "20241231",
+          "max_value": "20241231",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Tipo_Poliza",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Código_Región",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Número_Garantía",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Número_Cis_Garantía",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Moneda",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Importe",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "Descripción de la Garantía",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              " ",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": " ",
+          "max_value": " ",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "ACMON",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              " ",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": " ",
+          "max_value": " ",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "ACIMP2",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              " ",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": " ",
+          "max_value": " ",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "ACNGA",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              " ",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": " ",
+          "max_value": " ",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "ACCIS",
+          "data_type": "string",
+          "null_count": 0,
+          "null_percentage": 0.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              " ",
+              3
+            ]
+          ],
+          "min_length": 1,
+          "max_length": 1,
+          "avg_length": 1.0,
+          "min_value": " ",
+          "max_value": " ",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "LIMITE",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        },
+        {
+          "name": "SALDO",
+          "data_type": "string",
+          "null_count": 3,
+          "null_percentage": 100.0,
+          "unique_count": 1,
+          "top_values": [
+            [
+              "",
+              3
+            ]
+          ],
+          "min_length": 0,
+          "max_length": 0,
+          "avg_length": 0.0,
+          "min_value": "",
+          "max_value": "",
+          "mean_value": null,
+          "std_value": null
+        }
+      ],
+      "validation_warnings": [
+        "Row 2: width mismatch (expected 33, got 32)",
+        "Row 3: width mismatch (expected 33, got 32)",
+        "Row 4: width mismatch (expected 33, got 32)"
+      ],
+      "validation_errors": [],
+      "processing_time": 0.01589488983154297
+    }
+  }
+}
