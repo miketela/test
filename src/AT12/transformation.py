@@ -2240,7 +2240,10 @@ class AT12TransformationEngine(TransformationEngine):
         return df
     
     def _apply_fecha_avaluo_correction(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame], subtype: str = "") -> pd.DataFrame:
-        """1.5. Fecha Avalúo Errada: Correct inconsistent appraisal update dates."""
+        """1.5. Fecha Avalúo Errada: Correct inconsistent appraisal update dates.
+
+        Scope restriction: applies only to Tipo_Garantia in {'0207','0208','0209'}.
+        """
         if 'Fecha_Ultima_Actualizacion' not in df.columns or 'Numero_Prestamo' not in df.columns:
             return df
         
@@ -2290,7 +2293,14 @@ class AT12TransformationEngine(TransformationEngine):
 
         base_norm_keys = self._normalize_join_key(df['Numero_Prestamo'])
 
-        for idx in df.index:
+        # Restrict to Tipo_Garantia 0207/0208/0209 only
+        if 'Tipo_Garantia' not in df.columns:
+            return df
+        tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
+        allowed_tg = {'0207', '0208', '0209'}
+        target_index = df.index[tg_norm.isin(allowed_tg)]
+
+        for idx in target_index:
             fecha_val = str(df.loc[idx, 'Fecha_Ultima_Actualizacion'])
             numero_prestamo = df.loc[idx, 'Numero_Prestamo']
             needs_correction = False
