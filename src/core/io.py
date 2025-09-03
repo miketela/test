@@ -185,6 +185,18 @@ class StrictCSVReader(BaseFileReader):
         delim = self._resolve_csv_delimiter(file_path, file_encoding)
         # Resolve delimiter for this file if enabled
         delim = self._resolve_csv_delimiter(file_path, file_encoding)
+        try:
+            # Log which delimiter will be used for this file
+            mode = "auto" if getattr(self, 'auto_detect_delimiter', False) else "configured"
+            msg = f"Detected CSV delimiter ({mode}) for {file_path.name}: '{delim}'"
+            logger = logging.getLogger(__name__)
+            # Only use INFO when auto-detected delimiter differs from configured; else DEBUG
+            if getattr(self, 'auto_detect_delimiter', False) and delim != getattr(self, 'delimiter', ','):
+                logger.info(msg)
+            else:
+                logger.debug(msg)
+        except Exception:
+            pass
         
         try:
             with open(file_path, 'r', encoding=file_encoding, newline='') as f:
