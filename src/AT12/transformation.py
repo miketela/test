@@ -360,6 +360,11 @@ class AT12TransformationEngine(TransformationEngine):
         # Apply corrections that require AT03_CREDITOS
         if has_at03 and (subtype == 'BASE_AT12' or subtype == '' or subtype is None):
             df = self._apply_fecha_avaluo_correction(df, context, source_data, subtype=subtype or 'BASE_AT12')
+        elif (subtype == 'BASE_AT12' or subtype == '' or subtype is None):
+            try:
+                self.logger.info("Skipping FECHA_AVALUO_ERRADA: AT03_CREDITOS not available")
+            except Exception:
+                pass
         
         # Apply corrections that require POLIZA_HIPOTECAS_AT12 (from source_data)
         df = self._apply_inmuebles_sin_poliza_correction(df, context, source_data)
@@ -2043,6 +2048,10 @@ class AT12TransformationEngine(TransformationEngine):
         
         if 'AT03_CREDITOS' not in source_data or source_data['AT03_CREDITOS'].empty:
             self.logger.warning("AT03_CREDITOS data not available for fecha avalúo correction")
+            try:
+                self.logger.info("Skipping FECHA_AVALUO_ERRADA: AT03_CREDITOS not available")
+            except Exception:
+                pass
             return df
         
         at03_df = source_data['AT03_CREDITOS']
@@ -2210,6 +2219,10 @@ class AT12TransformationEngine(TransformationEngine):
         if mask_0207.any():
             if 'POLIZA_HIPOTECAS_AT12' not in source_data or source_data['POLIZA_HIPOTECAS_AT12'].empty:
                 self.logger.warning("POLIZA_HIPOTECAS_AT12 data not available for 0207 Tipo_Poliza correction")
+                try:
+                    self.logger.info("Skipping INMUEBLES_SIN_TIPO_POLIZA_0207: POLIZA_HIPOTECAS_AT12 not available")
+                except Exception:
+                    pass
             else:
                 hip_df = source_data['POLIZA_HIPOTECAS_AT12']
                 # Columnas esperadas: numcred, seguro_incendio
@@ -2385,6 +2398,10 @@ class AT12TransformationEngine(TransformationEngine):
         if mask.any():
             if 'GARANTIA_AUTOS_AT12' not in source_data or source_data['GARANTIA_AUTOS_AT12'].empty:
                 self.logger.warning("GARANTIA_AUTOS_AT12 data not available for auto policy Id_Documento completion")
+                try:
+                    self.logger.info("Skipping AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS: GARANTIA_AUTOS_AT12 not available")
+                except Exception:
+                    pass
             else:
                 autos_df = source_data['GARANTIA_AUTOS_AT12']
                 if 'numcred' in autos_df.columns and 'num_poliza' in autos_df.columns:
