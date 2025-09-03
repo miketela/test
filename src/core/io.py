@@ -115,7 +115,9 @@ class StrictCSVReader(BaseFileReader):
                  encoding: Optional[str] = 'utf-8',
                  quotechar: str = '"',
                  chunk_size: int = 1000000,
-                 auto_detect_encoding: bool = True):
+                 auto_detect_encoding: bool = True,
+                 auto_detect_delimiter: bool = True,
+                 delimiter_candidates: Optional[List[str]] = None):
         """Initialize CSV reader.
         
         Args:
@@ -130,6 +132,8 @@ class StrictCSVReader(BaseFileReader):
         self.encoding = encoding
         self.quotechar = quotechar
         self.auto_detect_encoding = auto_detect_encoding
+        self.auto_detect_delimiter = auto_detect_delimiter
+        self.delimiter_candidates = delimiter_candidates or [',', ';', '|', '\t']
     
     def _get_file_encoding(self, file_path: Path) -> str:
         """Get the appropriate encoding for a file.
@@ -174,10 +178,17 @@ class StrictCSVReader(BaseFileReader):
         
         # Get the appropriate encoding for this file
         file_encoding = self._get_file_encoding(file_path)
+        delim = self._resolve_csv_delimiter(file_path, file_encoding)
+        delim = self._resolve_csv_delimiter(file_path, file_encoding)
+        delim = self._resolve_csv_delimiter(file_path, file_encoding)
+        delim = self._resolve_csv_delimiter(file_path, file_encoding)
+        delim = self._resolve_csv_delimiter(file_path, file_encoding)
+        # Resolve delimiter for this file if enabled
+        delim = self._resolve_csv_delimiter(file_path, file_encoding)
         
         try:
             with open(file_path, 'r', encoding=file_encoding, newline='') as f:
-                reader = csv.reader(f, delimiter=self.delimiter, quotechar=self.quotechar)
+                reader = csv.reader(f, delimiter=delim, quotechar=self.quotechar)
                 
                 # Read header
                 try:
@@ -210,7 +221,7 @@ class StrictCSVReader(BaseFileReader):
                     if fallback_encoding != file_encoding:
                         try:
                             with open(file_path, 'r', encoding=fallback_encoding, newline='') as f:
-                                reader = csv.reader(f, delimiter=self.delimiter, quotechar=self.quotechar)
+                                reader = csv.reader(f, delimiter=delim, quotechar=self.quotechar)
                                 
                                 # Read header
                                 try:
@@ -264,11 +275,12 @@ class StrictCSVReader(BaseFileReader):
             DataFrame with CSV data
         """
         file_encoding = self._get_file_encoding(file_path)
+        delim = self._resolve_csv_delimiter(file_path, file_encoding)
         
         try:
             return pd.read_csv(
                 file_path,
-                delimiter=self.delimiter,
+                delimiter=delim,
                 encoding=file_encoding,
                 quotechar=self.quotechar,
                 dtype=str,  # Read all as strings initially
@@ -283,7 +295,7 @@ class StrictCSVReader(BaseFileReader):
                         try:
                             return pd.read_csv(
                                 file_path,
-                                delimiter=self.delimiter,
+                                delimiter=delim,
                                 encoding=fallback_encoding,
                                 quotechar=self.quotechar,
                                 dtype=str,
@@ -304,11 +316,12 @@ class StrictCSVReader(BaseFileReader):
             DataFrame chunks
         """
         file_encoding = self._get_file_encoding(file_path)
+        delim = self._resolve_csv_delimiter(file_path, file_encoding)
         
         try:
             chunk_reader = pd.read_csv(
                 file_path,
-                delimiter=self.delimiter,
+                delimiter=delim,
                 encoding=file_encoding,
                 quotechar=self.quotechar,
                 dtype=str,
@@ -328,7 +341,7 @@ class StrictCSVReader(BaseFileReader):
                         try:
                             chunk_reader = pd.read_csv(
                                 file_path,
-                                delimiter=self.delimiter,
+                                delimiter=delim,
                                 encoding=fallback_encoding,
                                 quotechar=self.quotechar,
                                 dtype=str,
@@ -355,11 +368,12 @@ class StrictCSVReader(BaseFileReader):
             DataFrame with sample data
         """
         file_encoding = self._get_file_encoding(file_path)
+        delim = self._resolve_csv_delimiter(file_path, file_encoding)
         
         try:
             return pd.read_csv(
                 file_path,
-                delimiter=self.delimiter,
+                delimiter=delim,
                 encoding=file_encoding,
                 quotechar=self.quotechar,
                 dtype=str,
@@ -375,7 +389,7 @@ class StrictCSVReader(BaseFileReader):
                         try:
                             return pd.read_csv(
                                 file_path,
-                                delimiter=self.delimiter,
+                                delimiter=delim,
                                 encoding=fallback_encoding,
                                 quotechar=self.quotechar,
                                 dtype=str,
@@ -400,7 +414,7 @@ class StrictCSVReader(BaseFileReader):
         
         try:
             with open(file_path, 'r', encoding=file_encoding, newline='') as f:
-                reader = csv.reader(f, delimiter=self.delimiter, quotechar=self.quotechar)
+                reader = csv.reader(f, delimiter=delim, quotechar=self.quotechar)
                 # Skip header
                 next(reader, None)
                 # Count remaining rows
@@ -413,16 +427,28 @@ class StrictCSVReader(BaseFileReader):
                     if fallback_encoding != file_encoding:
                         try:
                             with open(file_path, 'r', encoding=fallback_encoding, newline='') as f:
-                                reader = csv.reader(f, delimiter=self.delimiter, quotechar=self.quotechar)
+                                reader = csv.reader(f, delimiter=delim, quotechar=self.quotechar)
                                 # Skip header
                                 next(reader, None)
                                 # Count remaining rows
                                 return sum(1 for _ in reader)
                         except UnicodeDecodeError:
                             continue
-            return 0  # Return 0 if all encodings fail
+            # Fallback: simple line count minus header
+            try:
+                with open(file_path, 'r', encoding=file_encoding, errors='ignore') as f:
+                    total = sum(1 for _ in f)
+                return max(total - 1, 0)
+            except Exception:
+                return 0
         except Exception:
-            return 0
+            # Fallback: simple line count minus header on generic errors
+            try:
+                with open(file_path, 'r', encoding=file_encoding, errors='ignore') as f:
+                    total = sum(1 for _ in f)
+                return max(total - 1, 0)
+            except Exception:
+                return 0
     
     # Keep backward compatibility methods
     def read_csv(self, file_path: Path) -> pd.DataFrame:
@@ -432,6 +458,41 @@ class StrictCSVReader(BaseFileReader):
     def read_csv_chunks(self, file_path: Path) -> Iterator[pd.DataFrame]:
          """Read CSV file in chunks (backward compatibility)."""
          return self.read_chunks(file_path)
+
+    def _resolve_csv_delimiter(self, file_path: Path, file_encoding: Optional[str] = None) -> str:
+        """Detect delimiter for CSV if enabled; fallback to configured delimiter."""
+        if not getattr(self, 'auto_detect_delimiter', False):
+            return self.delimiter
+        try:
+            # Read a few non-empty lines
+            text = ''
+            with open(file_path, 'r', encoding=file_encoding or self._get_file_encoding(file_path), newline='') as f:
+                lines = []
+                for _ in range(10):
+                    line = f.readline()
+                    if not line:
+                        break
+                    if line.strip():
+                        lines.append(line)
+                text = ''.join(lines)
+            if text:
+                # Try Sniffer
+                try:
+                    sniff = csv.Sniffer().sniff(text, delimiters=''.join(getattr(self, 'delimiter_candidates', [',',';','|','\t'])))
+                    if sniff and getattr(sniff, 'delimiter', None) in getattr(self, 'delimiter_candidates', [',',';','|','\t']):
+                        return sniff.delimiter
+                except Exception:
+                    pass
+                # Heuristic: count candidates in header
+                header = text.splitlines()[0] if text else ''
+                candidates = getattr(self, 'delimiter_candidates', [',',';','|','\t'])
+                counts = {d: header.count(d) for d in candidates}
+                best = max(counts.items(), key=lambda kv: kv[1])
+                if best[1] > 0:
+                    return best[0]
+        except Exception:
+            pass
+        return self.delimiter
 
 
 class StrictXLSXReader(BaseFileReader):
