@@ -292,8 +292,44 @@ class AT12TransformationEngine(TransformationEngine):
         except Exception as e:
             self.logger.warning(f"Stage 4 skipped due to error: {e}")
         
+        # QA: Verify Tipo_Garantia formatting did not lose leading zeros (log-only)
+        try:
+            self._qa_verify_tipo_garantia_format(df, context, subtype)
+        except Exception:
+            pass
+
         self.logger.info("AT12 two-phase transformation pipeline completed")
         return df
+
+    def _qa_verify_tipo_garantia_format(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "") -> None:
+        """QA check: ensure Tipo_Garantia keeps 4-digit numeric codes; log anomalies only.
+
+        - bad_len: numeric values with length != 4 (potential lost leading zero like '207').
+        - non_digit: non-numeric codes (excluding empty).
+        """
+        if df is None or df.empty or 'Tipo_Garantia' not in df.columns:
+            return
+        s = df['Tipo_Garantia'].astype(str).str.strip()
+        # Identify empties (do not count as non_digit)
+        empties = s.eq("")
+        digit_mask = s.str.fullmatch(r"\d+")
+        bad_len_mask = digit_mask & (s.str.len() != 4)
+        non_digit_mask = (~digit_mask) & (~empties)
+        bad_len = int(bad_len_mask.sum())
+        non_digit = int(non_digit_mask.sum())
+        if bad_len or non_digit:
+            # Sample a few offending values for quick diagnostics
+            try:
+                sample_bad = s[bad_len_mask].unique().tolist()[:5]
+                sample_nd = s[non_digit_mask].unique().tolist()[:5]
+            except Exception:
+                sample_bad, sample_nd = [], []
+            self.logger.warning(
+                f"QA Tipo_Garantia anomalies in {subtype or 'BASE_AT12'}: bad_len={bad_len}, non_digit={non_digit}, "
+                f"samples_bad={sample_bad}, samples_non_digit={sample_nd}"
+            )
+        else:
+            self.logger.info(f"QA Tipo_Garantia OK in {subtype or 'BASE_AT12'}: all numeric 4-digit codes or empty")
     
     def _phase1a_independent_operations(self, df: pd.DataFrame, context: TransformationContext, 
                                       result: TransformationResult, 
