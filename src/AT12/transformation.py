@@ -1808,6 +1808,11 @@ class AT12TransformationEngine(TransformationEngine):
                     self._export_error_subset(df, overall_mask, target_subtype, 'EEOR_TABULAR', context, None, original_columns=original_columns)
             except Exception:
                 pass
+        else:
+            try:
+                self.logger.info("EEOR_TABULAR: no changes detected")
+            except Exception:
+                pass
         
         return df
     
@@ -1928,6 +1933,12 @@ class AT12TransformationEngine(TransformationEngine):
         except Exception:
             pass
 
+        else:
+            try:
+                cnt = int(mask_0301.sum())
+                self.logger.info(f"ERROR_0301: no changes (candidates={cnt})")
+            except Exception:
+                pass
         return df
     
     def _apply_coma_finca_empresa_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
@@ -1969,6 +1980,11 @@ class AT12TransformationEngine(TransformationEngine):
             try:
                 original_columns = {'Id_Documento': orig_series} if orig_series is not None else None
                 self._export_error_subset(df, mask_comma, 'BASE_AT12', 'COMA_EN_FINCA_EMPRESA', context, None, original_columns=original_columns)
+            except Exception:
+                pass
+        else:
+            try:
+                self.logger.info("COMA_EN_FINCA_EMPRESA: no records with comma in Id_Documento")
             except Exception:
                 pass
         
@@ -2036,6 +2052,11 @@ class AT12TransformationEngine(TransformationEngine):
                     mask = df.index.isin(idxs)
                     original_columns = {'Fecha_Vencimiento': orig_series} if orig_series is not None else None
                     self._export_error_subset(df, mask, 'BASE_AT12', 'FECHA_CANCELACION_ERRADA', context, None, original_columns=original_columns)
+            except Exception:
+                pass
+        else:
+            try:
+                self.logger.info("FECHA_CANCELACION_ERRADA: no invalid Fecha_Vencimiento records")
             except Exception:
                 pass
         
@@ -2277,7 +2298,11 @@ class AT12TransformationEngine(TransformationEngine):
                 self._export_error_subset(df, mask_export, 'BASE_AT12', 'INMUEBLES_SIN_TIPO_POLIZA', context, None, original_columns=original_columns)
             except Exception:
                 pass
-
+        else:
+            try:
+                self.logger.info("INMUEBLES_SIN_TIPO_POLIZA: no assignments (0208/0207)")
+            except Exception:
+                pass
         return df
     
     def _apply_inmuebles_sin_finca_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
@@ -2326,7 +2351,11 @@ class AT12TransformationEngine(TransformationEngine):
                 self._export_error_subset(df, mask, 'BASE_AT12', 'INMUEBLES_SIN_FINCA', context, None, original_columns=original_columns)
             except Exception:
                 pass
-
+        else:
+            try:
+                self.logger.info("INMUEBLES_SIN_FINCA: no candidates in 0207/0208/0209 or all valid")
+            except Exception:
+                pass
         return df
     
     def _apply_poliza_auto_comercial_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
@@ -2368,7 +2397,11 @@ class AT12TransformationEngine(TransformationEngine):
                 self._export_error_subset(df, mask, 'BASE_AT12', 'AUTO_COMERCIAL_ORG_CODE', context, None, original_columns=original_columns)
             except Exception:
                 pass
-
+        else:
+            try:
+                self.logger.info("AUTO_COMERCIAL_ORG_CODE: no empty Nombre_Organismo for 0106")
+            except Exception:
+                pass
         return df
     
     def _apply_error_poliza_auto_correction(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -2435,7 +2468,11 @@ class AT12TransformationEngine(TransformationEngine):
                 self._export_error_subset(df, mask, 'BASE_AT12', 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', context, None, original_columns=original_columns)
             except Exception:
                 pass
-
+        else:
+            try:
+                self.logger.info("AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS: no completions or no candidates 0101 empty")
+            except Exception:
+                pass
         return df
     
     def _apply_inmueble_sin_avaluadora_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
@@ -2477,5 +2514,9 @@ class AT12TransformationEngine(TransformationEngine):
                 self._export_error_subset(df, mask, 'BASE_AT12', 'INMUEBLE_SIN_AVALUADORA_ORG_CODE', context, None, original_columns=original_columns)
             except Exception:
                 pass
-
+        else:
+            try:
+                self.logger.info("INMUEBLE_SIN_AVALUADORA_ORG_CODE: no empty Nombre_Organismo for 0207/0208/0209")
+            except Exception:
+                pass
         return df
