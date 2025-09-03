@@ -1898,6 +1898,16 @@ class AT12TransformationEngine(TransformationEngine):
         modified_rows: List[Dict[str, Any]] = []
         incident_rows: List[Dict[str, Any]] = []
 
+        # Counters for logging/diagnostics
+        candidates_count = int(mask_0301.sum()) if hasattr(mask_0301, 'sum') else 0
+        c_mod = 0
+        c_inc = 0
+        c_ex_r1_len15_valid = 0
+        c_ex_r2_701 = 0
+        c_ex_r3_41_42 = 0
+        c_ex_r4_len10_valid = 0
+        c_no_action = 0
+
         # Helper to append a modified record snapshot (ensure error + transform columns)
         def _append_modified(idx: int, original: str, corrected: str, rule_label: str, tipo_error: str, transformacion: str):
             row = df.loc[idx].to_dict()
@@ -1947,6 +1957,7 @@ class AT12TransformationEngine(TransformationEngine):
                     if clen == 15:
                         # Valid, exclude from further ERROR_0301 processing
                         applied = True
+                        c_ex_r1_len15_valid += 1
                     elif clen > 15:
                         # Truncate to 15 keeping rightmost 15 (derecha→izquierda)
                         corrected = current[-15:]
@@ -1960,6 +1971,7 @@ class AT12TransformationEngine(TransformationEngine):
                             'Truncado (der→izq) a 15'
                         )
                         applied = True
+                        c_mod += 1
             if applied:
                 continue  # Move to next document (stop cascade for this row)
 
@@ -1980,6 +1992,7 @@ class AT12TransformationEngine(TransformationEngine):
                             'Válido por 701; esperado 11 dígitos en casos 701'
                         )
             if matched_701:
+                c_ex_r2_701 += 1
                 # Exclude from further ERROR_0301 processing
                 continue
 
@@ -1987,6 +2000,7 @@ class AT12TransformationEngine(TransformationEngine):
             if len(current) >= 10:
                 sub_9_10 = _slice_from_right(current, 10, 9)
                 if sub_9_10 in {'41', '42'}:
+                    c_ex_r3_41_42 += 1
                     continue
 
             # RULE_0301_04: Remaining docs with '01' in positions 9-10
@@ -1996,8 +2010,8 @@ class AT12TransformationEngine(TransformationEngine):
                 sub_9_10 = ''
 
             if sub_9_10 == '01':
-                # Do not truncate 15-char documents in this rule; they should be handled by RULE_0301_01
-                if len(current) > 10 and len(current) != 15:
+                # Truncate for any length > 10 (R1 already consumed valid 15-length cases)
+                if len(current) > 10:
                     # Truncate to 10 keeping rightmost 10
                     corrected = current[-10:]
                     df.at[idx, 'Id_Documento'] = corrected
@@ -2009,6 +2023,7 @@ class AT12TransformationEngine(TransformationEngine):
                         'Longitud mayor a 10 con "01" en posiciones 9-10',
                         'Truncado (der→izq) a 10'
                     )
+                    c_mod += 1
                 elif len(current) < 10:
                     # Incident: do not modify
                     _append_incident(
@@ -2017,10 +2032,13 @@ class AT12TransformationEngine(TransformationEngine):
                         'Longitud menor a 10 con "01" en posiciones 9-10',
                         'Length less than 10 while expecting "01" at positions 9-10'
                     )
+                    c_inc += 1
                 else:
                     # Exactly 10 and '01' in positions 9-10: valid; exclude
-                    pass
+                    c_ex_r4_len10_valid += 1
             # Else: no action for other cases (remain unchanged)
+            else:
+                c_no_action += 1
 
         # Exports for ERROR_0301
         try:
@@ -2084,6 +2102,19 @@ class AT12TransformationEngine(TransformationEngine):
                 self.logger.info(f"ERROR_0301 -> {inc_path.name} ({len(inc_df)} records)")
         except Exception as e:
             self.logger.warning(f"ERROR_0301 exports failed: {e}")
+
+        # Always log a summary so it's visible in transformation logs
+        try:
+            self.logger.info(
+                "ERROR_0301 summary: candidates=%s, modified=%s, incidents=%s, "
+                "excluded(R1_len15)=%s, excluded(R2_701)=%s, excluded(R3_41_42)=%s, "
+                "excluded(R4_len10_01)=%s, unchanged=%s" % (
+                    candidates_count, c_mod, c_inc, c_ex_r1_len15_valid, c_ex_r2_701,
+                    c_ex_r3_41_42, c_ex_r4_len10_valid, c_no_action
+                )
+            )
+        except Exception:
+            pass
 
         return df
     

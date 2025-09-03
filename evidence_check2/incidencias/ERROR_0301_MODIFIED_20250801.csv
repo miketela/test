@@ -1,0 +1,7 @@
+"Tipo_Garantia"|"Id_Documento"|"Id_Documento_ORIGINAL"|"Regla"|"tipo de error"|"transformacion"
+"0301"|"0118900514"|"000000118900514"|"Truncation by R4A"|"Longitud mayor a 10 con ""01"" en posiciones 9-10"|"Truncado (der→izq) a 10"
+"0301"|"0101771906"|"000000101771906"|"Truncation by R4A"|"Longitud mayor a 10 con ""01"" en posiciones 9-10"|"Truncado (der→izq) a 10"
+"0301"|"0101771955"|"000000101771955"|"Truncation by R4A"|"Longitud mayor a 10 con ""01"" en posiciones 9-10"|"Truncado (der→izq) a 10"
+"0301"|"0102050714"|"000000102050714"|"Truncation by R4A"|"Longitud mayor a 10 con ""01"" en posiciones 9-10"|"Truncado (der→izq) a 10"
+"0301"|"0102050714"|"000000102050714"|"Truncation by R4A"|"Longitud mayor a 10 con ""01"" en posiciones 9-10"|"Truncado (der→izq) a 10"
+"0301"|"0118930842"|"000000118930842"|"Truncation by R4A"|"Longitud mayor a 10 con ""01"" en posiciones 9-10"|"Truncado (der→izq) a 10"
