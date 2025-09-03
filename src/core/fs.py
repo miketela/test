@@ -51,7 +51,7 @@ def get_file_info(file_path: Path) -> dict:
 
 
 def copy_with_versioning(source_path: Path, dest_path: Path, run_id: str) -> Tuple[Path, bool]:
-    """Copy file with versioning if destination exists with different content.
+    """Copy file ensuring a single canonical copy (no duplicates).
     
     Args:
         source_path: Source file path
@@ -67,23 +67,25 @@ def copy_with_versioning(source_path: Path, dest_path: Path, run_id: str) -> Tup
     # If destination doesn't exist, simple copy
     if not dest_path.exists():
         shutil.copy2(source_path, dest_path)
+        # Verify
+        if calculate_sha256(source_path) != calculate_sha256(dest_path):
+            raise IOError(f"Copy verification failed for {dest_path}")
         return dest_path, False
-    
-    # Check if files are different
+
+    # If destination exists, compare content
     source_hash = calculate_sha256(source_path)
     dest_hash = calculate_sha256(dest_path)
-    
+
     if source_hash == dest_hash:
-        # Files are identical, no need to copy
+        # Files are identical, keep single copy
         return dest_path, False
-    
-    # Files are different, create versioned copy
-    stem = dest_path.stem
-    suffix = dest_path.suffix
-    versioned_path = dest_path.parent / f"{stem}__run-{run_id}{suffix}"
-    
-    shutil.copy2(source_path, versioned_path)
-    return versioned_path, True
+
+    # Files differ: overwrite destination to keep a single canonical file
+    shutil.copy2(source_path, dest_path)
+    # Verify
+    if calculate_sha256(source_path) != calculate_sha256(dest_path):
+        raise IOError(f"Overwrite verification failed for {dest_path}")
+    return dest_path, True
 
 
 def normalize_filename(filename: str) -> str:
