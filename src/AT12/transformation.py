@@ -220,7 +220,10 @@ class AT12TransformationEngine(TransformationEngine):
     def _apply_transformations(self, df: pd.DataFrame, context: TransformationContext, 
                              result: TransformationResult, source_data: Dict[str, pd.DataFrame],
                              subtype: str = "") -> pd.DataFrame:
-        """Apply AT12-specific transformations using a five-stage pipeline.
+        """Apply AT12-specific transformations using a two-phase approach.
+        
+        Phase 1a: Operations that don't require AT02/AT03 dependencies
+        Phase 1b: Operations that require AT02/AT03 dependencies (gated)
         
         Args:
             df: Input DataFrame
@@ -231,7 +234,7 @@ class AT12TransformationEngine(TransformationEngine):
         Returns:
             Transformed DataFrame
         """
-        self.logger.info("Starting AT12 transformation pipeline")
+        self.logger.info("Starting AT12 two-phase transformation pipeline")
         
         # Initialize IncidenceReporter
         self.incidence_reporter = IncidenceReporter(
@@ -240,8 +243,20 @@ class AT12TransformationEngine(TransformationEngine):
             period=context.period
         )
         
-        # Stage 1: Initial Data Cleansing and Formatting
-        df = self._stage1_initial_cleansing(df, context, result, source_data, subtype)
+        # Check availability of dependency files
+        has_at02 = 'AT02_CUENTAS' in source_data and not source_data['AT02_CUENTAS'].empty
+        has_at03 = 'AT03_CREDITOS' in source_data and not source_data['AT03_CREDITOS'].empty
+        
+        self.logger.info(f"Dependency availability - AT02: {has_at02}, AT03: {has_at03}")
+        
+        # Phase 1a: Independent operations (no AT02/AT03 dependencies)
+        df = self._phase1a_independent_operations(df, context, result, source_data, subtype)
+        
+        # Phase 1b: Dependent operations (require AT02/AT03) - only if dependencies available
+        if has_at02 or has_at03:
+            df = self._phase1b_dependent_operations(df, context, result, source_data, subtype, has_at02, has_at03)
+        else:
+            self.logger.warning("Skipping Phase 1b: AT02/AT03 dependencies not available")
         
         # Stage 2: Data Enrichment and Generation from Auxiliary Sources
         df = self._stage2_enrichment(df, context, result, source_data, subtype)
@@ -249,20 +264,56 @@ class AT12TransformationEngine(TransformationEngine):
         # Stage 3: Business Logic Application and Reporting
         df = self._stage3_business_logic(df, context, result, source_data)
         
-        # Stage 4: Data Validation and Quality Assurance (only when applicable)
+        # Stage 4: Data Validation and Quality Assurance (only when applicable and dependencies available)
         try:
-            if 'Numero_Prestamo' in df.columns or 'at_num_de_prestamos' in df.columns:
+            if ('Numero_Prestamo' in df.columns or 'at_num_de_prestamos' in df.columns) and has_at03:
                 df = self._stage4_validation(df, context, result, source_data)
             else:
-                self.logger.debug("Skipping Stage 4: required identifier column not present")
+                reason = "required identifier column not present" if not ('Numero_Prestamo' in df.columns or 'at_num_de_prestamos' in df.columns) else "AT03_CREDITOS dependency not available"
+                self.logger.debug(f"Skipping Stage 4: {reason}")
         except Exception as e:
             self.logger.warning(f"Stage 4 skipped due to error: {e}")
         
-        self.logger.info("AT12 transformation pipeline completed")
+        self.logger.info("AT12 two-phase transformation pipeline completed")
+        return df
+    
+    def _phase1a_independent_operations(self, df: pd.DataFrame, context: TransformationContext, 
+                                      result: TransformationResult, source_data: Dict[str, pd.DataFrame], 
+                                      subtype: str = "") -> pd.DataFrame:
+        """Phase 1a: Operations that don't require AT02/AT03 dependencies."""
+        self.logger.info("Executing Phase 1a: Independent operations")
+        
+        # Apply error correction rules that don't require AT02/AT03
+        df = self._apply_eeor_tabular_cleaning(df, context, subtype=subtype)
+        df = self._apply_error_0301_correction(df, context, subtype=subtype, result=result)
+        df = self._apply_coma_finca_empresa_correction(df, context)
+        df = self._apply_fecha_cancelacion_correction(df, context)
+        df = self._apply_inmuebles_sin_finca_correction(df, context)
+        df = self._apply_poliza_auto_comercial_correction(df, context)
+        df = self._apply_inmueble_sin_avaluadora_correction(df, context)
+        
+        self.logger.info("Completed Phase 1a: Independent operations")
+        return df
+    
+    def _phase1b_dependent_operations(self, df: pd.DataFrame, context: TransformationContext, 
+                                    result: TransformationResult, source_data: Dict[str, pd.DataFrame], 
+                                    subtype: str = "", has_at02: bool = False, has_at03: bool = False) -> pd.DataFrame:
+        """Phase 1b: Operations that require AT02/AT03 dependencies."""
+        self.logger.info("Executing Phase 1b: Dependent operations")
+        
+        # Apply corrections that require AT03_CREDITOS
+        if has_at03 and (subtype == 'BASE_AT12' or subtype == '' or subtype is None):
+            df = self._apply_fecha_avaluo_correction(df, context, source_data, subtype=subtype or 'BASE_AT12')
+        
+        # Apply corrections that require POLIZA_HIPOTECAS_AT12 (from source_data)
+        df = self._apply_inmuebles_sin_poliza_correction(df, context, source_data)
+        df = self._apply_error_poliza_auto_correction(df, context, source_data)
+        
+        self.logger.info("Completed Phase 1b: Dependent operations")
         return df
     
     def _stage1_initial_cleansing(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame], subtype: str = "") -> pd.DataFrame:
-        """Stage 1: Initial Data Cleansing and Formatting"""
+        """Stage 1: Initial Data Cleansing and Formatting (legacy method for compatibility)"""
         return self._phase1_error_correction(df, context, result, source_data, subtype=subtype)
 
     def _stage2_enrichment(self, df: pd.DataFrame, context: TransformationContext, result: TransformationResult, source_data: Dict[str, pd.DataFrame], subtype: str = "") -> pd.DataFrame:
@@ -337,9 +388,43 @@ class AT12TransformationEngine(TransformationEngine):
         
         return result
     
+    def _phase1a_independent_operations(self, df: pd.DataFrame, context: TransformationContext, 
+                                      result: TransformationResult, subtype: str = "") -> pd.DataFrame:
+        """Phase 1a: Apply error corrections that do not require AT02/AT03 dependencies."""
+        self.logger.info("Executing Phase 1a: Independent Error Corrections")
+        
+        # Apply error correction rules that don't require external dependencies
+        df = self._apply_eeor_tabular_cleaning(df, context, subtype=subtype)
+        df = self._apply_error_0301_correction(df, context, subtype=subtype, result=result)
+        df = self._apply_coma_finca_empresa_correction(df, context)
+        df = self._apply_fecha_cancelacion_correction(df, context)
+        df = self._apply_inmuebles_sin_finca_correction(df, context)
+        df = self._apply_poliza_auto_comercial_correction(df, context)
+        df = self._apply_inmueble_sin_avaluadora_correction(df, context)
+        
+        self.logger.info("Completed Phase 1a: Independent error corrections")
+        return df
+    
+    def _phase1b_dependent_operations(self, df: pd.DataFrame, context: TransformationContext, 
+                                    result: TransformationResult, source_data: Dict[str, pd.DataFrame], 
+                                    subtype: str = "") -> pd.DataFrame:
+        """Phase 1b: Apply error corrections that require AT02/AT03 dependencies."""
+        self.logger.info("Executing Phase 1b: Dependent Error Corrections")
+        
+        # This method requires source_data for AT03_CREDITOS lookup, and applies only for BASE_AT12
+        if source_data and (subtype == 'BASE_AT12' or subtype == '' or subtype is None):
+            df = self._apply_fecha_avaluo_correction(df, context, source_data, subtype=subtype or 'BASE_AT12')
+        
+        # These methods may use POLIZA_HIPOTECAS_AT12 or other dependency data
+        df = self._apply_inmuebles_sin_poliza_correction(df, context, source_data)
+        df = self._apply_error_poliza_auto_correction(df, context, source_data)
+        
+        self.logger.info("Completed Phase 1b: Dependent error corrections")
+        return df
+    
     def _phase1_error_correction(self, df: pd.DataFrame, context: TransformationContext, 
                                result: TransformationResult, source_data: Dict[str, pd.DataFrame], subtype: str = "") -> pd.DataFrame:
-        """Phase 1: Apply error correction rules to the data according to Stage 1 specifications."""
+        """Phase 1: Apply error correction rules to the data (legacy method for compatibility)."""
         self.logger.info("Executing Phase 1: Initial Data Cleansing and Formatting")
         
         # Apply all error correction rules in sequence
@@ -363,16 +448,20 @@ class AT12TransformationEngine(TransformationEngine):
     
     def _phase2_input_processing(self, df: pd.DataFrame, context: TransformationContext, 
                                result: TransformationResult, source_data: Dict[str, pd.DataFrame], subtype_hint: str = "") -> pd.DataFrame:
-        """Phase 2: Process input data based on subtype."""
+        """Phase 2: Process input data based on subtype with dependency checking."""
         self.logger.info("Executing Phase 2: Input Processing")
+        
+        # Check dependency availability
+        has_at02 = 'AT02_CUENTAS' in source_data and not source_data['AT02_CUENTAS'].empty
+        has_at03 = 'AT03_CREDITOS' in source_data and not source_data['AT03_CREDITOS'].empty
         
         # Determine subtype from hint or DataFrame characteristics
         subtype = subtype_hint or self._determine_subtype(df, context)
         
         if subtype == 'TDC_AT12':
-            return self._process_tdc_data(df, context, result, source_data)
+            return self._process_tdc_data_gated(df, context, result, source_data, has_at02, has_at03)
         elif subtype == 'SOBREGIRO_AT12':
-            return self._process_sobregiro_data(df, context, result, source_data)
+            return self._process_sobregiro_data_gated(df, context, result, source_data, has_at02, has_at03)
         elif subtype == 'VALORES_AT12':
             return self._process_valores_data(df, context, result, source_data)
         else:
@@ -392,9 +481,41 @@ class AT12TransformationEngine(TransformationEngine):
         else:
             return 'UNKNOWN'
     
+    def _process_tdc_data_gated(self, df: pd.DataFrame, context: TransformationContext, 
+                              result: TransformationResult, source_data: Dict[str, pd.DataFrame],
+                              has_at02: bool = False, has_at03: bool = False) -> pd.DataFrame:
+        """Process TDC (Tarjeta de Crédito) specific data with dependency gating."""
+        self.logger.info("Processing TDC_AT12 data - Stage 2 (gated)")
+
+        # Step 0: Ensure Tipo_Facilidad from AT03 (only if AT03 available)
+        if has_at03:
+            try:
+                df = self._ensure_tipo_facilidad_from_at03(df, 'TDC_AT12', context, result, source_data)
+            except Exception as e:
+                self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for TDC due to error: {e}")
+        else:
+            self.logger.info("Skipping FACILIDAD_FROM_AT03 for TDC: AT03_CREDITOS not available")
+
+        # Step 1: Generate Número_Garantía (in-process, no incidences)
+        df = self._generate_numero_garantia_tdc(df, context)
+
+        # Step 2: Date Mapping with AT02_CUENTAS (only if AT02 available)
+        if has_at02:
+            df = self._apply_date_mapping_tdc(df, context, source_data)
+        else:
+            self.logger.info("Skipping date mapping for TDC: AT02_CUENTAS not available")
+
+        # Step 3: Business rule - Tarjeta repetida (detect duplicates excluding Numero_Prestamo)
+        try:
+            df = self._validate_tdc_tarjeta_repetida(df, context)
+        except Exception as e:
+            self.logger.warning(f"TDC 'Tarjeta_repetida' validation skipped due to error: {e}")
+        
+        return df
+    
     def _process_tdc_data(self, df: pd.DataFrame, context: TransformationContext, 
                         result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Process TDC (Tarjeta de Crédito) specific data (guarantee number + date mapping + duplicates)."""
+        """Process TDC (Tarjeta de Crédito) specific data (legacy method for compatibility)."""
         self.logger.info("Processing TDC_AT12 data - Stage 2")
 
         # Step 0: Ensure Tipo_Facilidad from AT03 (must run before any other step)
@@ -515,9 +636,52 @@ class AT12TransformationEngine(TransformationEngine):
 
         return df
     
+    def _process_sobregiro_data_gated(self, df: pd.DataFrame, context: TransformationContext, 
+                                    result: TransformationResult, source_data: Dict[str, pd.DataFrame],
+                                    has_at02: bool = False, has_at03: bool = False) -> pd.DataFrame:
+        """Process Sobregiro specific data with dependency gating."""
+        self.logger.info("Processing SOBREGIRO_AT12 data - Stage 2 (gated)")
+        
+        # Step 0: Ensure Tipo_Facilidad from AT03 (only if AT03 available)
+        if has_at03:
+            try:
+                df = self._ensure_tipo_facilidad_from_at03(df, 'SOBREGIRO_AT12', context, result, source_data)
+            except Exception as e:
+                self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for SOBREGIRO due to error: {e}")
+        else:
+            self.logger.info("Skipping FACILIDAD_FROM_AT03 for SOBREGIRO: AT03_CREDITOS not available")
+
+        # Light normalization (trim + monetarias)
+        df = self._normalize_tdc_basic(df)
+
+        # 2.2. SOBREGIRO_AT12 Processing
+        # Apply the same JOIN and date mapping logic as TDC (only if AT02 available)
+        # The Numero_Garantia field is not modified for SOBREGIRO
+        if has_at02:
+            df = self._apply_date_mapping_sobregiro(df, context, source_data)
+        else:
+            self.logger.info("Skipping date mapping for SOBREGIRO: AT02_CUENTAS not available")
+        
+        # Format money columns with comma decimal if normalized
+        for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe'):
+            num_col = col + '__num'
+            if num_col in df.columns:
+                # Keep SOBREGIRO schema exact: prefer 'valor_ponderado' (lowercase) over 'Valor_Ponderado'
+                if col == 'valor_ponderado':
+                    target = 'valor_ponderado'
+                elif col in ('Valor_Garantia', 'Valor_Garantía'):
+                    target = 'Valor_Garantia'
+                else:
+                    target = col
+                df[target] = self._format_money_comma(df[num_col])
+        if 'Importe__num' in df.columns:
+            df['Importe'] = self._format_money_comma(df['Importe__num'])
+        
+        return df
+    
     def _process_sobregiro_data(self, df: pd.DataFrame, context: TransformationContext, 
                               result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Process Sobregiro specific data according to Stage 2 specifications."""
+        """Process Sobregiro specific data according to Stage 2 specifications (legacy method for compatibility)."""
         self.logger.info("Processing SOBREGIRO_AT12 data - Stage 2")
         
         # Step 0: Ensure Tipo_Facilidad from AT03 (must run before any other step)
