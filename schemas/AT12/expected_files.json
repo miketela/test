@@ -111,6 +111,17 @@
       "required": false,
       "frequency": "monthly",
       "supported_formats": ["csv", "xlsx"]
+    },
+    "AT03_TDC": {
+      "description": "AT03 TDC data for Tipo_Facilidad assignment in TDC_AT12",
+      "patterns": [
+        "AT03_TDC_[YYYYMMDD].CSV",
+        "AT03_TDC_[YYYYMMDD].XLSX"
+      ],
+      "pattern": "AT03_TDC_[YYYYMMDD].(CSV|XLSX)",
+      "required": false,
+      "frequency": "monthly",
+      "supported_formats": ["csv", "xlsx"]
     }
   },
   "validation_rules": {

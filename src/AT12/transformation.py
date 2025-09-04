@@ -988,7 +988,7 @@ class AT12TransformationEngine(TransformationEngine):
         df = df.sort_values('Id_Documento', ascending=True).reset_index(drop=True)
 
         unique_keys = {}
-        next_number = 855500
+        next_number = 850500
         incidences = []
         try:
             orig_series = pd.Series(index=df.index, dtype=object)

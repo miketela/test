@@ -185,9 +185,22 @@ This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facili
 | 10000 | 012313 | 01 | 855500 |
 | 10000 | 012314 | 02 | 855501 |
 
-**2.2. `SOBREGIRO_AT12` (Overdrafts) Processing**
-*   **Objective:** To enrich the overdraft atom with dates from the source account.
-*   **Detailed Process (Logic):** Apply the same `JOIN` and date mapping logic as in step 2.1. The `Numero_Garantia` field is not modified.
+2.2. `SOBREGIRO_AT12` (Overdrafts) Processing Objective: To enrich the overdraft data by assigning the correct facility type (Tipo_Facilidad) and updating key dates from the master accounts file. Detailed Process (Logic):
+1. `Tipo_Facilidad` Assignment from `SOBREGIRO_AT12` (FIRST):
+    * A JOIN is performed between the `SOBREGIRO_AT12` input and the `AT03_CREDITO` file.
+    * Keys: `Numero_Prestamo` (from `SOBREGIRO_AT12`) ↔ num_cta (from `AT03_CREDITO`).
+    * Rule:
+        * If a record from `SOBREGIRO_AT12` finds a match in AT03_CREDITO, its `Tipo_Facilidad` is set to '01'.
+        * If no match is found, its `Tipo_Facilidad` is set to '02'.
+2. Date Mapping from AT02_CUENTAS:
+    * A JOIN is performed between the SOBREGIRO_AT12 data (post-step 1) and the AT02_CUENTAS master file.
+    * Keys: Id_Documento (from SOBREGIRO_AT12) ↔ identificacion_de_cuenta (from AT02_CUENTAS).
+    * Mapping Rules:
+        * If a match is found, Fecha_Ultima_Actualizacion is overwritten with the value from Fecha_inicio (from AT02_CUENTAS).
+        * If a match is found, Fecha_Vencimiento is overwritten with the value from Fecha_Vencimiento (from AT02_CUENTAS).
+        * If no match is found, the original date values in the record are kept. Incidence Reporting:
+* Any record whose dates are modified during the "Date Mapping" step is exported to a dedicated incident file.
+File Name: DATE_MAPPING_CHANGES_SOBREGIRO_[YYYYMMDD].csv. Content: The report includes all columns of the modified rows, plus additional columns to preserve the original values for traceability: Fecha_Ultima_Actualizacion_ORIGINAL and Fecha_Vencimiento_ORIGINAL.
 
 **2.3. `VALORES_AT12` (Securities) Generation**
 *   **Objective:** To construct the securities atom with the complete, final column structure.
