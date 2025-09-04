@@ -499,6 +499,20 @@ class AT12Processor:
                     except Exception:
                         # Fallback to UTF-16 with whitespace
                         df = _pd.read_csv(source_path, dtype=str, header=0, sep=r'\s+', engine='python', keep_default_na=False, encoding='utf-16')
+                    # Enforce dot decimals on common monetary columns before saving to RAW CSV
+                    try:
+                        money_candidates = [
+                            'Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe',
+                            'Monto', 'Monto_Pignorado', 'Intereses_por_Pagar', 'Importe_por_pagar',
+                            'valor_inicial', 'intereses_x_cobrar', 'saldo', 'provision', 'provison_NIIF', 'provision_no_NIIF',
+                            'mto_garantia_1', 'mto_garantia_2', 'mto_garantia_3', 'mto_garantia_4', 'mto_garantia_5',
+                            'LIMITE', 'SALDO'
+                        ]
+                        for col in money_candidates:
+                            if col in df.columns:
+                                df[col] = df[col].astype(str).str.replace(',', '.', regex=False)
+                    except Exception:
+                        pass
                     # Save as CSV (comma delimiter) in UTF-8 to RAW
                     dest_path.parent.mkdir(parents=True, exist_ok=True)
                     df.to_csv(dest_path, index=False, encoding='utf-8')

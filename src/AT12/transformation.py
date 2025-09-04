@@ -161,6 +161,33 @@ class AT12TransformationEngine(TransformationEngine):
         """Format numeric series with comma decimal as string (no thousand sep)."""
         return s.map(lambda x: ('' if pd.isna(x) else f"{float(x):.2f}".replace('.', ',')))
 
+    def _enforce_dot_decimal(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Force dot decimals in common monetary columns across subtypes for output files.
+
+        Replaces comma "," with dot "." in string representations for known amount columns.
+        """
+        if df is None or df.empty:
+            return df
+        df = df.copy()
+        candidates = [
+            # Generic monetary columns
+            'Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe',
+            # AT02 specific
+            'Monto', 'Monto_Pignorado', 'Intereses_por_Pagar', 'Importe_por_pagar',
+            # AT03 specific
+            'valor_inicial', 'intereses_x_cobrar', 'saldo', 'provision', 'provison_NIIF', 'provision_no_NIIF',
+            'mto_garantia_1', 'mto_garantia_2', 'mto_garantia_3', 'mto_garantia_4', 'mto_garantia_5',
+            # TDC specific aggregates
+            'LIMITE', 'SALDO'
+        ]
+        for col in candidates:
+            if col in df.columns:
+                try:
+                    df[col] = df[col].astype(str).str.replace(',', '.', regex=False)
+                except Exception:
+                    pass
+        return df
+
     def _export_error_subset(self, df: pd.DataFrame, mask: pd.Series, subtype: str, rule_name: str,
                               context: TransformationContext, result: Optional[TransformationResult],
                               original_columns: Optional[Dict[str, pd.Series]] = None) -> None:
@@ -1783,6 +1810,11 @@ class AT12TransformationEngine(TransformationEngine):
                         df = df.drop(columns=drop_cols)
                 except Exception:
                     pass
+                # Enforce dot decimals in processed CSV outputs
+                try:
+                    df = self._enforce_dot_decimal(df)
+                except Exception:
+                    pass
                 
                 # Save processed file
                 if self._save_dataframe_as_csv(df, processed_path):
@@ -1828,16 +1860,9 @@ class AT12TransformationEngine(TransformationEngine):
                             out_df.drop(columns=drop_cols, inplace=True)
                     except Exception:
                         pass
-                    
-                    # For space-delimited files (TDC/SOBREGIRO/VALORES), ensure dot decimal in money fields
+                    # Ensure dot decimal in money fields for all TXT outputs
                     try:
-                        if delimiter == ' ':
-                            money_candidates = [
-                                'Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe'
-                            ]
-                            for col in money_candidates:
-                                if col in out_df.columns:
-                                    out_df[col] = out_df[col].astype(str).str.replace(',', '.', regex=False)
+                        out_df = self._enforce_dot_decimal(out_df)
                     except Exception:
                         pass
                     
