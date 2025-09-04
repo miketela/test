@@ -148,33 +148,37 @@ This stage enriches the main dataset by joining it with auxiliary files and appl
 **2.0. Pre-processing of `Tipo_Facilidad` for TDC and Sobregiro**
 This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facilidad` is correctly set based on the presence of the loan in the core credit system.
 
-*   **Objective:** To assign `Tipo_Facilidad` based on a cross-reference with `AT03_CREDITOS`.
-*   **Scope:** Applies to both `TDC_AT12` and `SOBREGIRO_AT12` inputs.
+*   **Objective:** Asignar `Tipo_Facilidad` por presencia en archivos auxiliares (por subtipo).
+*   **Scope:** Aplica a `TDC_AT12` y `SOBREGIRO_AT12`; cada uno con su fuente. Se omite si el archivo auxiliar requerido no está disponible.
 *   **Detailed Process (Logic):**
-    1.  For each record in `TDC_AT12` and `SOBREGIRO_AT12`, the `Numero_Prestamo` is checked against the `num_cta` column in `AT03_CREDITOS`.
-    2.  **Rule:**
-        *   If a match is found, `Tipo_Facilidad` is set to **'01'**.
-        *   If no match is found, `Tipo_Facilidad` is set to **'02'**.
-*   **Incidence Reporting:**
-    *   Any record where `Tipo_Facilidad` is changed is exported to a dedicated CSV file: `FACILIDAD_FROM_AT03_[SUBTYPE]_[YYYYMMDD].csv`.
-    *   This file includes all original columns plus a column `Tipo_Facilidad_ORIGINAL` to show the value before the change.
+    - `TDC_AT12` con `AT03_TDC`:
+        1. Normalizar llaves en ambos lados: `Numero_Prestamo` y `num_cta` a dígitos‑solo, sin ceros a la izquierda.
+        2. Regla: si `Numero_Prestamo`(norm) ∈ `AT03_TDC.num_cta`(norm) ⇒ `Tipo_Facilidad='01'`; de lo contrario `'02'`.
+    3. Actualizar solo si el valor cambia. Incidencia: exportar filas cambiadas a `FACILIDAD_FROM_AT03_TDC_AT12_[YYYYMMDD].csv` con `Tipo_Facilidad_ORIGINAL`.
+    - `SOBREGIRO_AT12` con `AT03_CREDITOS`:
+        1. Normalizar llaves en ambos lados: `Numero_Prestamo` y `num_cta` a dígitos‑solo, sin ceros a la izquierda.
+        2. Regla: si `Numero_Prestamo`(norm) ∈ `AT03_CREDITOS.num_cta`(norm) ⇒ `Tipo_Facilidad='01'`; de lo contrario `'02'`.
+        3. Actualizar solo si el valor cambia. Incidencia: exportar filas cambiadas a `FACILIDAD_FROM_AT03_SOBREGIRO_AT12_[YYYYMMDD].csv` con `Tipo_Facilidad_ORIGINAL`.
 
 **2.1. `TDC_AT12` (Credit Cards) Processing**
-*   **Objective:** Generate unique guarantee numbers and enrich TDC dates; solo “Tarjeta repetida” produce incidencias.
+*   **Objective:** Generate unique guarantee numbers and enrich TDC dates; solo “Tarjeta repetida” produce incidencias (además de `FACILIDAD_FROM_AT03` en 2.0).
 *   **Detailed Process (Logic):**
     1.  **`Número_Garantía` (por run):**
-        *   Preparación: limpiar `Número_Garantía` y ordenar por `Id_Documento` ascendente.
+        *   Preparación: limpiar `Número_Garantía` (armoniza variantes como `Numero_Garantia`) y ordenar por `Id_Documento` ascendente.
         *   Llave: (`Id_Documento`, `Tipo_Facilidad`).
         *   Asignación: secuencia desde 855,500 por run; primera ocurrencia asigna, repetidas reutilizan.
         *   Repetidos por `Numero_Prestamo` dentro de la misma llave: solo log (sin incidencias).
     2.  **Date Mapping:**
         *   JOIN `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02).
-        *   `Fecha_Última_Actualización` ← `Fecha_inicio` (AT02) y `Fecha_Vencimiento` ← `Fecha_Vencimiento` (AT02).
+        *   Normalización de llaves para el JOIN: dígitos‑solo y sin ceros a la izquierda en ambos lados.
+        *   Deduplicación de AT02 previa al JOIN por llave normalizada, priorizando fechas más recientes.
+        *   `Fecha_Última_Actualización`/`Fecha_Ultima_Actualizacion` ← `Fecha_inicio` (AT02) y `Fecha_Vencimiento` ← `Fecha_Vencimiento` (AT02).
         *   Sin match: mantener valores originales.
     3.  **Inconsistencia `Tarjeta_repetida`:**
         *   Detectar duplicados excluyendo `Numero_Prestamo` usando prioridad de clave:
             - (`Identificacion_cliente`, `Identificacion_Cuenta`, `Tipo_Facilidad`) o,
             - (`Id_Documento`, `Tipo_Facilidad`).
+        *   Llaves normalizadas (dígitos‑solo/trim) para evitar falsos positivos/negativos.
         *   Export: `INC_REPEATED_CARD_TDC_AT12_[YYYYMMDD].csv`.
 
 *Ejemplo `Numero_Garantia` (por run)*

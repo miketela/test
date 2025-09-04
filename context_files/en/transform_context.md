@@ -22,14 +22,42 @@ A single, auditable ETL pipeline for AT12: cleaning → enrichment → business 
 6–10. Additional fixes — Missing policy/registry, policy normalizations.
 
 ## Stage 2: Enrichment and Atom Generation
-- TDC_AT12 (Credit Cards)
-  - Numero_Garantia: sequential from 855,500 by key `Id_Documento + Tipo_Facilidad` (clear column first and sort by `Id_Documento`).
-  - Date mapping (updated): JOIN with AT02_CUENTAS using `Id_Documento` (TDC) to `identificacion_de_cuenta` (AT02). Update `Fecha_Última_Actualización` from `Fecha_inicio` (AT02) and `Fecha_Vencimiento` from `Fecha_Vencimiento` (AT02).
-  - Inconsistency Tarjeta_repetida: detect duplicates excluding `Numero_Prestamo` using key priority: (1) `Identificacion_cliente`,`Identificacion_Cuenta`,`Tipo_Facilidad`; else (2) `Id_Documento`,`Tipo_Facilidad`. Export CSV per rule: `TARJETA_REPETIDA_TDC_AT12_[YYYYMMDD].csv`.
-- SOBREGIRO_AT12
-  - Map dates from AT02_CUENTAS: set `Fecha_Ultima_Actualizacion` from `Fecha_proceso` and `Fecha_Vencimiento` from `Fecha_Vencimiento` with fallback to base values; no suffix reliance.
-- VALORES_AT12
-  - Use reference from BASE_AT12 where `Tipo_Garantia='0507'` to populate fields like `Clave_Pais`, `Clave_Empresa`.
+
+### 2.0. Tipo_Facilidad pre-processing (per subtype)
+- Objective: set `Tipo_Facilidad` based on presence in the appropriate auxiliary file per subtype.
+- Scope: applies to `TDC_AT12` (using `AT03_TDC`) and `SOBREGIRO_AT12` (using `AT03_CREDITOS`); each runs only if its auxiliary file is available.
+- Logic:
+  - TDC_AT12 + AT03_TDC
+    1) Normalize keys: digits-only, strip leading zeros on `Numero_Prestamo` and `num_cta`.
+    2) If `Numero_Prestamo` (normalized) ∈ `AT03_TDC.num_cta` (normalized) ⇒ `Tipo_Facilidad='01'`, else `'02'`.
+    3) Update rows only when the new value differs.
+    - Incidence: export changed rows only to `FACILIDAD_FROM_AT03_TDC_AT12_[YYYYMMDD].csv`, preserving all columns and adding `Tipo_Facilidad_ORIGINAL`.
+  - SOBREGIRO_AT12 + AT03_CREDITOS
+    1) Normalize keys as above; membership check on `AT03_CREDITOS.num_cta`.
+    2) Apply the same rule (`'01'` if present, else `'02'`), updating only when changed.
+    - Incidence: export changed rows only to `FACILIDAD_FROM_AT03_SOBREGIRO_AT12_[YYYYMMDD].csv`, preserving all columns and adding `Tipo_Facilidad_ORIGINAL`.
+
+### TDC_AT12 (Credit Cards)
+- Numero_Garantia: sequential from 855,500 by key `(Id_Documento, Tipo_Facilidad)`; clear the target column first and sort by `Id_Documento`. Repeats within the same key reuse the number. Repeated `Numero_Prestamo` within the same key is logged only (no incidence).
+- Date mapping: JOIN `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02).
+  - Normalize join keys (digits-only, strip leading zeros) on both sides.
+  - Deduplicate AT02 on the normalized key, preferring the most recent dates.
+  - Set `Fecha_Última_Actualización`/`Fecha_Ultima_Actualizacion` from `Fecha_inicio` and `Fecha_Vencimiento` from `Fecha_Vencimiento`. No change when no match.
+- Inconsistency Repeated Card: detect duplicates excluding `Numero_Prestamo` with key priority:
+  1) (`Identificacion_cliente`, `Identificacion_Cuenta`, `Tipo_Facilidad`), else
+  2) (`Id_Documento`, `Tipo_Facilidad`).
+  - Normalize key parts to avoid false positives/negatives.
+  - Export: `INC_REPEATED_CARD_TDC_AT12_[YYYYMMDD].csv`.
+
+### SOBREGIRO_AT12
+- Date mapping from AT02_CUENTAS:
+  - Preferred: single-key join `Id_Documento` ↔ `Identificacion_Cuenta` (normalized like TDC).
+  - Fallback: dual-key join (`Identificacion_cliente`, `Identificacion_Cuenta`) when available.
+  - Set `Fecha_Ultima_Actualizacion` from `Fecha_proceso` and `Fecha_Vencimiento` from `Fecha_Vencimiento`, with fallback to base values when missing.
+- Money fields: normalized and formatted to comma decimals where applicable; schema preserved (e.g., `valor_ponderado`).
+
+### VALORES_AT12
+- Use reference from BASE_AT12 where `Tipo_Garantia='0507'` to populate fields like `Clave_Pais`, `Clave_Empresa`; generate `Numero_Garantia` padded when required by specification.
 
 ## Stage 3: Business Reporting — FUERA_CIERRE_AT12
 - Create Excel with tabs: DESEMBOLSO (last three months), PYME (Segmento ∈ {PYME,BEC}), CARTERA (rest).

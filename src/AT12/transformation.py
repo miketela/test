@@ -571,17 +571,21 @@ class AT12TransformationEngine(TransformationEngine):
     def _process_tdc_data_gated(self, df: pd.DataFrame, context: TransformationContext, 
                               result: TransformationResult, source_data: Dict[str, pd.DataFrame],
                               has_at02: bool = False, has_at03: bool = False) -> pd.DataFrame:
-        """Process TDC (Tarjeta de Crédito) specific data with dependency gating."""
+        """Process TDC (Tarjeta de Crédito) specific data with dependency gating.
+
+        Note: Tipo_Facilidad pre-processing for TDC uses AT03_TDC and is required.
+        """
         self.logger.info("Processing TDC_AT12 data - Stage 2 (gated)")
 
-        # Step 0: Ensure Tipo_Facilidad from AT03 (only if AT03 available)
-        if has_at03:
-            try:
-                df = self._ensure_tipo_facilidad_from_at03(df, 'TDC_AT12', context, result, source_data)
-            except Exception as e:
-                self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for TDC due to error: {e}")
+        # Step 0: Ensure Tipo_Facilidad using AT03_TDC (required for TDC)
+        has_at03_tdc = ('AT03_TDC' in source_data) and (not source_data['AT03_TDC'].empty)
+        if has_at03_tdc:
+            df = self._ensure_tipo_facilidad_from_at03(
+                df, 'TDC_AT12', context, result, source_data,
+                at03_key='AT03_TDC', require=True
+            )
         else:
-            self.logger.info("Skipping FACILIDAD_FROM_AT03 for TDC: AT03_CREDITOS not available")
+            raise RuntimeError("AT03_TDC not available; required for FACILIDAD_FROM_AT03 in TDC_AT12")
 
         # Step 1: Generate Número_Garantía (in-process, no incidences)
         df = self._generate_numero_garantia_tdc(df, context)
@@ -602,14 +606,22 @@ class AT12TransformationEngine(TransformationEngine):
     
     def _process_tdc_data(self, df: pd.DataFrame, context: TransformationContext, 
                         result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Process TDC (Tarjeta de Crédito) specific data (legacy method for compatibility)."""
+        """Process TDC (Tarjeta de Crédito) specific data (legacy method for compatibility).
+
+        Note: Tipo_Facilidad pre-processing for TDC uses AT03_TDC and is required.
+        """
         self.logger.info("Processing TDC_AT12 data - Stage 2")
 
-        # Step 0: Ensure Tipo_Facilidad from AT03 (must run before any other step)
-        try:
-            df = self._ensure_tipo_facilidad_from_at03(df, 'TDC_AT12', context, result, source_data)
-        except Exception as e:
-            self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for TDC due to error: {e}")
+        # Step 0: Ensure Tipo_Facilidad from AT03_TDC (required)
+        has_at03_tdc = ('AT03_TDC' in source_data) and (not source_data['AT03_TDC'].empty)
+        if has_at03_tdc:
+            df = self._ensure_tipo_facilidad_from_at03(
+                df, 'TDC_AT12', context, result, source_data,
+                at03_key='AT03_TDC', require=False
+            )
+        else:
+            # Legacy method: skip if AT03_TDC not present (tests may call without aux sources)
+            self.logger.info("AT03_TDC not available; skipping FACILIDAD_FROM_AT03 in legacy TDC path")
 
         # Step 1: Generate Número_Garantía (in-process, no incidences)
         df = self._generate_numero_garantia_tdc(df, context)
@@ -803,8 +815,9 @@ class AT12TransformationEngine(TransformationEngine):
         return df
 
     def _ensure_tipo_facilidad_from_at03(self, df: pd.DataFrame, subtype: str, context: TransformationContext,
-                                         result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Set Tipo_Facilidad based on presence of loan in AT03_CREDITOS.
+                                         result: TransformationResult, source_data: Dict[str, pd.DataFrame],
+                                         at03_key: str = 'AT03_CREDITOS', require: bool = False) -> pd.DataFrame:
+        """Set Tipo_Facilidad based on presence of loan in AT03 dataset (configurable).
 
         Rules:
         - If Numero_Prestamo (normalized) exists in AT03.num_cta (normalized) → Tipo_Facilidad = '01'
@@ -814,9 +827,13 @@ class AT12TransformationEngine(TransformationEngine):
         """
         if df is None or df.empty:
             return df
-        if 'AT03_CREDITOS' not in source_data or source_data['AT03_CREDITOS'].empty:
-            self.logger.info("AT03_CREDITOS not available; skipping FACILIDAD_FROM_AT03")
-            return df
+        if at03_key not in source_data or source_data[at03_key].empty:
+            msg = f"{at03_key} not available; "
+            if require:
+                raise RuntimeError(msg + f"required for FACILIDAD_FROM_AT03 in {subtype}")
+            else:
+                self.logger.info(msg + "skipping FACILIDAD_FROM_AT03")
+                return df
 
         # Resolve loan number column on DF (support accented variant for TDC)
         loan_col = None
@@ -832,9 +849,9 @@ class AT12TransformationEngine(TransformationEngine):
             self.logger.warning("FACILIDAD_FROM_AT03 skipped: Tipo_Facilidad column not found")
             return df
 
-        at03 = source_data['AT03_CREDITOS']
+        at03 = source_data[at03_key]
         if 'num_cta' not in at03.columns:
-            self.logger.warning("FACILIDAD_FROM_AT03 skipped: num_cta not found in AT03_CREDITOS")
+            self.logger.warning(f"FACILIDAD_FROM_AT03 skipped: num_cta not found in {at03_key}")
             return df
 
         # Normalize keys
