@@ -6,128 +6,139 @@
       "description": "Base AT12 data with loan and borrower information",
       "patterns": [
         "BASE_AT12_[YYYYMMDD].CSV",
-        "BASE_AT12_[YYYYMMDD].XLSX"
+        "BASE_AT12_[YYYYMMDD].XLSX",
+        "BASE_AT12_[YYYYMMDD].TXT"
       ],
-      "pattern": "BASE_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "BASE_AT12_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": true,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     },
     "TDC_AT12": {
       "description": "TDC AT12 data with credit card guarantees information",
       "patterns": [
         "TDC_AT12_[YYYYMMDD].CSV",
-        "TDC_AT12_[YYYYMMDD].XLSX"
+        "TDC_AT12_[YYYYMMDD].XLSX",
+        "TDC_AT12_[YYYYMMDD].TXT"
       ],
-      "pattern": "TDC_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "TDC_AT12_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": false,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     },
     "VALORES_AT12": {
       "description": "VALORES AT12 data with securities guarantees information",
       "patterns": [
         "VALORES_AT12_[YYYYMMDD].CSV",
-        "VALORES_AT12_[YYYYMMDD].XLSX"
+        "VALORES_AT12_[YYYYMMDD].XLSX",
+        "VALORES_AT12_[YYYYMMDD].TXT"
       ],
-      "pattern": "VALORES_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "VALORES_AT12_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": false,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     },
     "SOBREGIRO_AT12": {
       "description": "SOBREGIRO AT12 data with overdraft guarantees information",
       "patterns": [
         "SOBREGIRO_AT12_[YYYYMMDD].CSV",
-        "SOBREGIRO_AT12_[YYYYMMDD].XLSX"
+        "SOBREGIRO_AT12_[YYYYMMDD].XLSX",
+        "SOBREGIRO_AT12_[YYYYMMDD].TXT"
       ],
-      "pattern": "SOBREGIRO_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "SOBREGIRO_AT12_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": false,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     },
     "GARANTIA_AUTOS_AT12": {
       "description": "GARANTIA AUTOS AT12 data with auto guarantees information",
       "patterns": [
         "GARANTIA_AUTOS_AT12_[YYYYMMDD].CSV",
-        "GARANTIA_AUTOS_AT12_[YYYYMMDD].XLSX"
+        "GARANTIA_AUTOS_AT12_[YYYYMMDD].XLSX",
+        "GARANTIA_AUTOS_AT12_[YYYYMMDD].TXT"
       ],
-      "pattern": "GARANTIA_AUTOS_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "GARANTIA_AUTOS_AT12_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": false,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     },
     "POLIZA_HIPOTECAS_AT12": {
       "description": "POLIZA HIPOTECAS AT12 data with mortgage insurance information",
       "patterns": [
         "POLIZA_HIPOTECAS_AT12_[YYYYMMDD].CSV",
-        "POLIZA_HIPOTECAS_AT12_[YYYYMMDD].XLSX"
+        "POLIZA_HIPOTECAS_AT12_[YYYYMMDD].XLSX",
+        "POLIZA_HIPOTECAS_AT12_[YYYYMMDD].TXT"
       ],
-      "pattern": "POLIZA_HIPOTECAS_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "POLIZA_HIPOTECAS_AT12_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": false,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     },
     "AFECTACIONES_AT12": {
       "description": "AFECTACIONES AT12 data with loan affectations information",
       "patterns": [
         "AFECTACIONES_AT12_[YYYYMMDD].CSV",
-        "AFECTACIONES_AT12_[YYYYMMDD].XLSX"
+        "AFECTACIONES_AT12_[YYYYMMDD].XLSX",
+        "AFECTACIONES_AT12_[YYYYMMDD].TXT"
       ],
-      "pattern": "AFECTACIONES_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "AFECTACIONES_AT12_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": false,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     },
     "VALOR_MINIMO_AVALUO_AT12": {
       "description": "VALOR MINIMO AVALUO AT12 data with minimum appraisal value information",
       "patterns": [
         "VALOR_MINIMO_AVALUO_AT12_[YYYYMMDD].CSV",
-        "VALOR_MINIMO_AVALUO_AT12_[YYYYMMDD].XLSX"
+        "VALOR_MINIMO_AVALUO_AT12_[YYYYMMDD].XLSX",
+        "VALOR_MINIMO_AVALUO_AT12_[YYYYMMDD].TXT"
       ],
-      "pattern": "VALOR_MINIMO_AVALUO_AT12_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "VALOR_MINIMO_AVALUO_AT12_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": false,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     },
     "AT02_CUENTAS": {
       "description": "AT02 CUENTAS data with account information",
       "patterns": [
         "AT02_CUENTAS_[YYYYMMDD].CSV",
-        "AT02_CUENTAS_[YYYYMMDD].XLSX"
+        "AT02_CUENTAS_[YYYYMMDD].XLSX",
+        "AT02_CUENTAS_[YYYYMMDD].TXT"
       ],
-      "pattern": "AT02_CUENTAS_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "AT02_CUENTAS_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": false,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     },
     "AT03_CREDITOS": {
       "description": "AT03 data required for AT12 verification processes",
       "patterns": [
         "AT03_CREDITOS_[YYYYMMDD].CSV",
-        "AT03_CREDITOS_[YYYYMMDD].XLSX"
+        "AT03_CREDITOS_[YYYYMMDD].XLSX",
+        "AT03_CREDITOS_[YYYYMMDD].TXT"
       ],
-      "pattern": "AT03_CREDITOS_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "AT03_CREDITOS_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": false,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     },
     "AT03_TDC": {
       "description": "AT03 TDC data for Tipo_Facilidad assignment in TDC_AT12",
       "patterns": [
         "AT03_TDC_[YYYYMMDD].CSV",
-        "AT03_TDC_[YYYYMMDD].XLSX"
+        "AT03_TDC_[YYYYMMDD].XLSX",
+        "AT03_TDC_[YYYYMMDD].TXT"
       ],
-      "pattern": "AT03_TDC_[YYYYMMDD].(CSV|XLSX)",
+      "pattern": "AT03_TDC_[YYYYMMDD].(CSV|XLSX|TXT)",
       "required": false,
       "frequency": "monthly",
-      "supported_formats": ["csv", "xlsx"]
+      "supported_formats": ["csv", "xlsx", "txt"]
     }
   },
   "validation_rules": {
-    "filename_pattern": "^[A-Z_]+_\\d{8}\\.(CSV|XLSX)$",
+    "filename_pattern": "^[A-Z_]+_\\d{8}\\.(CSV|XLSX|TXT)$",
     "date_format": "YYYYMMDD",
     "case_sensitive": false,
-    "supported_extensions": [".csv", ".xlsx"]
+    "supported_extensions": [".csv", ".xlsx", ".txt"]
   }
 }

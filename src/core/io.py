@@ -133,7 +133,8 @@ class StrictCSVReader(BaseFileReader):
         self.quotechar = quotechar
         self.auto_detect_encoding = auto_detect_encoding
         self.auto_detect_delimiter = auto_detect_delimiter
-        self.delimiter_candidates = delimiter_candidates or [',', ';', '|', '\t']
+        # Include common delimiters: comma, semicolon, pipe, tab, and space
+        self.delimiter_candidates = delimiter_candidates or [',', ';', '|', '\t', ' ']
     
     def _get_file_encoding(self, file_path: Path) -> str:
         """Get the appropriate encoding for a file.
@@ -666,7 +667,7 @@ class UniversalFileReader:
     def detect_format(self, file_path: Path) -> str:
         """Detect file format based on extension."""
         suffix = file_path.suffix.lower()
-        if suffix == '.csv':
+        if suffix in ['.csv', '.txt']:
             return 'csv'
         elif suffix in ['.xlsx', '.xls']:
             return 'xlsx'

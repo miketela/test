@@ -216,9 +216,10 @@ class AT12Processor:
                 warnings=[]
             )
         
-        # Find all CSV files (case-insensitive)
-        csv_files = find_files_by_pattern(source_dir, "*.csv")
-        csv_files.extend(find_files_by_pattern(source_dir, "*.CSV"))
+        # Find all CSV/TXT files (case-insensitive)
+        csv_files = []
+        for patt in ("*.csv", "*.CSV", "*.txt", "*.TXT"):
+            csv_files.extend(find_files_by_pattern(source_dir, patt))
         
         # Remove duplicates that may occur on case-insensitive filesystems
         unique_files = []
@@ -235,10 +236,10 @@ class AT12Processor:
         if not csv_files:
             return ProcessingResult(
                 success=False,
-                message="No CSV files found in source directory",
+                message="No source files found in source directory",
                 files_processed=0,
                 total_records=0,
-                errors=["No CSV files found in source directory"],
+                errors=["No source files found in source directory"],
                 warnings=[]
             )
         
@@ -292,7 +293,7 @@ class AT12Processor:
         self.logger.info(f"Final files after mapping: {len(final_files)} files")
         
         # Log all discovered files
-        self.logger.info(f"Found {len(csv_files)} CSV files in source directory:")
+        self.logger.info(f"Found {len(csv_files)} source files in source directory:")
         for i, file_path in enumerate(csv_files, 1):
             self.logger.info(f"  {i}. {file_path.name}")
         
