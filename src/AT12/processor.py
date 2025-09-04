@@ -660,31 +660,40 @@ class AT12Processor:
                 logger=self.logger
             )
 
-            # Load input files into DataFrames (CSV/XLSX via UniversalFileReader; TXT handled separately)
+            # Load input files into DataFrames (CSV/XLSX/TXT with auto encoding + delimiter)
             import pandas as pd
             import re as _re
             source_data = {}
             for file_path in input_files:
                 try:
-                    # Read file allowing TXT (pipe/space) without headers and CSV/XLSX with headers
+                    # Read file using appropriate path per extension
                     suffix = file_path.suffix.lower()
                     if suffix == '.txt':
-                        # Detect delimiter from first non-empty line
-                        sep = None
-                        try:
-                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                for line in f:
-                                    line = line.strip('\n\r')
-                                    if line.strip():
-                                        sep = '|' if '|' in line else None
-                                        break
-                        except Exception:
-                            sep = None
-                        # Default: whitespace if not pipe
-                        if sep == '|':
-                            df = pd.read_csv(file_path, dtype=str, header=None, sep='|', engine='python', keep_default_na=False)
+                        # Use CSV reader's encoding + delimiter detection for TXT (supports UTF-16 Unicode Text)
+                        csv_reader = self.file_reader.csv_reader
+                        file_encoding = csv_reader._get_file_encoding(file_path)
+                        sep = csv_reader._resolve_csv_delimiter(file_path, file_encoding)
+                        # If Sniffer chose plain space, prefer regex whitespace for robustness
+                        if sep == ' ':
+                            df = pd.read_csv(
+                                file_path,
+                                dtype=str,
+                                header=0,
+                                sep=r'\s+',
+                                engine='python',
+                                keep_default_na=False,
+                                encoding=file_encoding
+                            )
                         else:
-                            df = pd.read_csv(file_path, dtype=str, header=None, delim_whitespace=True, engine='python', keep_default_na=False)
+                            df = pd.read_csv(
+                                file_path,
+                                dtype=str,
+                                header=0,
+                                sep=sep,
+                                engine='python',
+                                keep_default_na=False,
+                                encoding=file_encoding
+                            )
                     else:
                         # Strict pre-validation for CSV/XLSX to prevent silent data loss
                         try:
@@ -717,13 +726,43 @@ class AT12Processor:
                         # CSV/XLSX path: use universal reader (auto delimiter + encoding)
                         df = self.file_reader.read_file(file_path)
                 except Exception:
-                    # Fallback without encoding_errors for older pandas
+                    # Fallback read paths
                     if file_path.suffix.lower() == '.txt':
-                        # Retry TXT with permissive options
                         try:
-                            df = pd.read_csv(file_path, dtype=str, header=None, sep='|', engine='python', keep_default_na=False)
+                            csv_reader = self.file_reader.csv_reader
+                            file_encoding = csv_reader._get_file_encoding(file_path)
+                            sep = csv_reader._resolve_csv_delimiter(file_path, file_encoding)
+                            if sep == ' ':
+                                df = pd.read_csv(
+                                    file_path,
+                                    dtype=str,
+                                    header=0,
+                                    sep=r'\s+',
+                                    engine='python',
+                                    keep_default_na=False,
+                                    encoding=file_encoding
+                                )
+                            else:
+                                df = pd.read_csv(
+                                    file_path,
+                                    dtype=str,
+                                    header=0,
+                                    sep=sep,
+                                    engine='python',
+                                    keep_default_na=False,
+                                    encoding=file_encoding
+                                )
                         except Exception:
-                            df = pd.read_csv(file_path, dtype=str, header=None, delim_whitespace=True, engine='python', keep_default_na=False)
+                            # Last resort: try utf-16 with whitespace
+                            df = pd.read_csv(
+                                file_path,
+                                dtype=str,
+                                header=0,
+                                sep=r'\s+',
+                                engine='python',
+                                keep_default_na=False,
+                                encoding='utf-16'
+                            )
                     else:
                         # Retry via universal reader again
                         df = self.file_reader.read_file(file_path)
