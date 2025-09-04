@@ -51,10 +51,11 @@ A single, auditable ETL pipeline for AT12: cleaning → enrichment → business 
 
 ### SOBREGIRO_AT12
 - Date mapping from AT02_CUENTAS:
-  - Preferred: single-key join `Id_Documento` ↔ `Identificacion_Cuenta` (normalized like TDC).
+  - Preferred: single-key join `Id_Documento` ↔ `Identificacion_Cuenta` (normalized like TDC). Deduplicate AT02 by normalized key, preferring most recent dates.
   - Fallback: dual-key join (`Identificacion_cliente`, `Identificacion_Cuenta`) when available.
-  - Set `Fecha_Ultima_Actualizacion` from `Fecha_proceso` and `Fecha_Vencimiento` from `Fecha_Vencimiento`, with fallback to base values when missing.
-- Money fields: normalized and formatted to comma decimals where applicable; schema preserved (e.g., `valor_ponderado`).
+  - Set `Fecha_Ultima_Actualizacion` from `Fecha_inicio` and `Fecha_Vencimiento` from `Fecha_Vencimiento`, keeping base values when no match.
+  - Incidence export: `DATE_MAPPING_CHANGES_SOBREGIRO_[YYYYMMDD].csv` with full rows and side-by-side `_ORIGINAL` columns for the updated date fields.
+- Money fields: outputs use dot (`.`) decimals consistently.
 
 ### VALORES_AT12
 - Use reference from BASE_AT12 where `Tipo_Garantia='0507'` to populate fields like `Clave_Pais`, `Clave_Empresa`; generate `Numero_Garantia` padded when required by specification.
@@ -73,8 +74,24 @@ A single, auditable ETL pipeline for AT12: cleaning → enrichment → business 
 - Export headerless TXT:
   - `BASE_AT12` delimited by `|`.
   - `TDC_AT12`, `SOBREGIRO_AT12`, `VALORES_AT12` delimited by a single space.
-- Files written under `transforms/AT12/procesados/`.
+- Decimals policy: all monetary fields are written with dot (`.`) decimal (no comma) across RAW (TXT→CSV conversion), processed CSVs, and consolidated TXTs. Internal helper columns (e.g., `__num`) are excluded from outputs.
+- Files written under `transforms/AT12/consolidated/`.
+
+Note (Input/RAW normalization): TXT inputs (including Excel “Unicode Text”) are accepted; during Explore, TXT files are converted to UTF‑8 CSV in RAW with auto‑detected encoding/delimiter and dot‑decimal normalization. CSV sources from input are also normalized to dot decimals during RAW copy.
 
 ## Incidence CSV Naming
 - Per-rule subsets (full rows): `[RULE]_[SUBTYPE]_[YYYYMMDD].csv` (e.g., `FECHA_AVALUO_ERRADA_BASE_AT12_20250701.csv`). Each corrected field includes a side-by-side `_ORIGINAL` column.
 - Global aggregates (e.g., EEOR_TABULAR): `EEOR_TABULAR_[YYYYMMDD].csv`.
+
+### Appendix: Monetary Fields (normalized to dot decimals)
+- BASE_AT12: `Valor_Inicial`, `Valor_Garantia`, `Valor_Ponderado`, `Importe`.
+- TDC_AT12: `Valor_Inicial`, `Valor_Garantía`, `Valor_Ponderado`, `Importe`, `LIMITE`, `SALDO`.
+- SOBREGIRO_AT12: `Valor_Inicial`, `Valor_Garantia`, `valor_ponderado`, `Importe`.
+- VALORES_AT12: `Valor_Inicial`, `Valor_Garantia`, `Valor_Ponderado`, `Importe`.
+- AT02_CUENTAS: `Monto`, `Monto_Pignorado`, `Intereses_por_Pagar`, `Importe`, `Importe_por_pagar`, `Tasa`.
+- AT03_CREDITOS: `valor_inicial`, `intereses_x_cobrar`, `saldo`, `provision`, `provison_NIIF`, `provision_no_NIIF`, `saldo_original`, `mto_garantia_1..5`, `mto_xv30d/60d/90d/120d/180d/1a`, `Mto_xV1a5a`, `Mto_xV5a10a`, `Mto_xVm10a`, `mto_v30d/60d/90d/120d/180d/1a`, `mto_vm1a`, `mto_a_pagar`, `interes_diferido`, `tasa_interes`, `monto_ult_pago_capital`, `monto_ult_pago_interes`.
+- AT03_TDC: `valor_inicial`, `intereses_x_cobrar`, `saldo`, `provision`, `provison_niif`, `provision_no_niif`, `saldo_original_2`, `mto_garantia_1..5`, `mto_xv30d/60d/90d/120d/180d/1a`, `mto_xv1a5a`, `mto_xv5a10a`, `mto_xvm10a`, `mto_v30d/60d/90d/120d/180d/1a`, `mto_vm1a`, `mto_a_pagar`, `interes_dif`, `tasa_interes`, `monto_ultimo_pago_cap`, `monto_ultimo_pago_int`.
+- GARANTIA_AUTOS_AT12: `saldocapital`, `monto_asegurado`.
+- POLIZA_HIPOTECAS_AT12: `saldocapital`, `seguro_incendio` (if monetary).
+- AFECTACIONES_AT12: `at_saldo`.
+- VALOR_MINIMO_AVALUO_AT12: `at_valor_garantia`, `at_valor_pond_garantia`, `valor_garantia`, `nuevo_at_valor_garantia`, `nuevo_at_valor_pond_garantia`, `venta_rapida`, `factor`.

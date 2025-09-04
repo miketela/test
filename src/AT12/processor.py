@@ -519,13 +519,55 @@ class AT12Processor:
                     copied_files.append(str(dest_path))
                     self.logger.info(f"Converted {source_path.name} → {dest_path.name}")
                 else:
-                    dest_filename = f"{base_name}__run-{run_id}{source_path.suffix}"
-                    dest_path = data_dir / dest_filename
-                    # Copy with versioning
-                    final_path, was_versioned = copy_with_versioning(source_path, dest_path, run_id)
-                    final_path = final_path
-                    copied_files.append(str(final_path))
-                    self.logger.info(f"Copied {source_path.name} → {final_path.name}")
+                    # Normalize decimals for CSV sources; copy others as-is
+                    if extension in ('.csv', '.CSV'):
+                        dest_filename = f"{base_name}__run-{run_id}.csv"
+                        dest_path = data_dir / dest_filename
+                        import pandas as _pd
+                        try:
+                            csv_reader = self.file_reader.csv_reader
+                            file_encoding = csv_reader._get_file_encoding(source_path)
+                            sep = csv_reader._resolve_csv_delimiter(source_path, file_encoding)
+                            df = _pd.read_csv(
+                                source_path,
+                                dtype=str,
+                                header=0,
+                                sep=sep,
+                                engine='python',
+                                keep_default_na=False,
+                                encoding=file_encoding
+                            )
+                            # Enforce dot decimals on common monetary columns
+                            money_candidates = [
+                                'Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe',
+                                'Monto', 'Monto_Pignorado', 'Intereses_por_Pagar', 'Importe_por_pagar',
+                                'valor_inicial', 'intereses_x_cobrar', 'saldo', 'provision', 'provison_NIIF', 'provision_no_NIIF',
+                                'mto_garantia_1', 'mto_garantia_2', 'mto_garantia_3', 'mto_garantia_4', 'mto_garantia_5',
+                                'mto_xv30d', 'mto_xv60d', 'mto_xv90d', 'mto_xv120d', 'mto_xv180d', 'mto_xv1a',
+                                'Mto_xV1a5a', 'Mto_xV5a10a', 'Mto_xVm10a',
+                                'mto_v30d', 'mto_v60d', 'mto_v90d', 'mto_v120d', 'mto_v180d', 'mto_v1a', 'mto_vm1a',
+                                'mto_a_pagar', 'saldo_original', 'saldo_original_2', 'saldocapital', 'monto_asegurado',
+                                'LIMITE', 'SALDO', 'interes_diferido', 'interes_dif', 'tasa_interes', 'Tasa'
+                            ]
+                            for col in money_candidates:
+                                if col in df.columns:
+                                    df[col] = df[col].astype(str).str.replace(',', '.', regex=False)
+                        except Exception as e:
+                            self.logger.warning(f"CSV decimal normalization skipped for {source_path.name}: {e}")
+                            # Fallback to plain read; decimals as-is
+                            df = _pd.read_csv(source_path, dtype=str, keep_default_na=False)
+                        dest_path.parent.mkdir(parents=True, exist_ok=True)
+                        df.to_csv(dest_path, index=False, encoding='utf-8')
+                        copied_files.append(str(dest_path))
+                        self.logger.info(f"Normalized decimals and copied {source_path.name} → {dest_path.name}")
+                    else:
+                        dest_filename = f"{base_name}__run-{run_id}{source_path.suffix}"
+                        dest_path = data_dir / dest_filename
+                        # Copy with versioning
+                        final_path, was_versioned = copy_with_versioning(source_path, dest_path, run_id)
+                        final_path = final_path
+                        copied_files.append(str(final_path))
+                        self.logger.info(f"Copied {source_path.name} → {final_path.name}")
                 
             except Exception as e:
                 errors.append(f"{file_path}: Failed to copy - {str(e)}")

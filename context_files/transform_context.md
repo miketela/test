@@ -202,9 +202,10 @@ This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facili
     * Mapping Rules:
         * If a match is found, Fecha_Ultima_Actualizacion is overwritten with the value from Fecha_inicio (from AT02_CUENTAS).
         * If a match is found, Fecha_Vencimiento is overwritten with the value from Fecha_Vencimiento (from AT02_CUENTAS).
-        * If no match is found, the original date values in the record are kept. Incidence Reporting:
-* Any record whose dates are modified during the "Date Mapping" step is exported to a dedicated incident file.
-File Name: DATE_MAPPING_CHANGES_SOBREGIRO_[YYYYMMDD].csv. Content: The report includes all columns of the modified rows, plus additional columns to preserve the original values for traceability: Fecha_Ultima_Actualizacion_ORIGINAL and Fecha_Vencimiento_ORIGINAL.
+        * If no match is found, the original date values in the record are kept.
+    * Incidence Reporting:
+        * Any record whose dates are modified during the "Date Mapping" step is exported to a dedicated incident file.
+        * File Name: DATE_MAPPING_CHANGES_SOBREGIRO_[YYYYMMDD].csv. Content: includes all columns of the modified rows, plus additional columns to preserve the original values for traceability: Fecha_Ultima_Actualizacion_ORIGINAL and Fecha_Vencimiento_ORIGINAL.
 
 **2.3. `VALORES_AT12` (Securities) Generation**
 *   **Objective:** To construct the securities atom with the complete, final column structure.
@@ -259,6 +260,7 @@ This is a critical stage of the ETL pipeline where financial validations are per
             *   **Delimiter:** Use the pipe symbol (`|`) as the separator.
             *   **Header:** Do **not** include the column names in the output file.
             *   **File Path:** Save to the `consolidated/` directory.
+            *   **Decimals:** Monetary fields use dot (`.`) as decimal separator (no comma).
 
     2.  **For the `TDC_AT12` DataFrame:**
         *   **Action:** Export the DataFrame to a text file (`.txt`).
@@ -266,6 +268,7 @@ This is a critical stage of the ETL pipeline where financial validations are per
             *   **Delimiter:** Use a single space (` `) as the separator.
             *   **Header:** Do **not** include the column names in the output file.
             *   **File Path:** Save to the `consolidated/` directory.
+            *   **Decimals:** Monetary fields use dot (`.`) as decimal separator (no comma).
 
     3.  **For the `SOBREGIRO_AT12` DataFrame:**
         *   **Action:** Export the DataFrame to a text file (`.txt`).
@@ -273,6 +276,7 @@ This is a critical stage of the ETL pipeline where financial validations are per
             *   **Delimiter:** Use a single space (` `) as the separator.
             *   **Header:** Do **not** include the column names in the output file.
             *   **File Path:** Save to the `consolidated/` directory.
+            *   **Decimals:** Monetary fields use dot (`.`) as decimal separator (no comma).
 
     4.  **For the `VALORES_AT12` DataFrame:**
         *   **Action:** Export the DataFrame to a text file (`.txt`).
@@ -280,8 +284,11 @@ This is a critical stage of the ETL pipeline where financial validations are per
             *   **Delimiter:** Use a single space (` `) as the separator.
             *   **Header:** Do **not** include the column names in the output file.
             *   **File Path:** Save to the `consolidated/` directory.
+            *   **Decimals:** Monetary fields use dot (`.`) as decimal separator (no comma).
 
-*   **Final Action (Output):** Four headerless `.txt` files are created in the `consolidated/` directory, each with its specific delimiter, representing the final output of the ETL pipeline.
+*   **Final Action (Output):** Four headerless `.txt` files are created in the `consolidated/` directory, each with its specific delimiter, representing the final output of the ETL pipeline. Internal helper columns (e.g., `__num`) are not included; all monetary fields are normalized to dot decimals across RAW, processed and consolidated outputs.
+
+Note (Input/RAW normalization): TXT inputs (including Excel “Unicode Text”) are accepted and converted to UTF‑8 CSV in RAW with auto‑detected encoding/delimiter. During this conversion, and for CSV sources directly, all monetary fields are normalized to dot (`.`) decimals to unify downstream handling. Processed CSVs also maintain dot decimals.
 
 ### **Nomenclatura de Incidencias (CSV)**
 - Subconjuntos por regla (filas completas):
@@ -295,3 +302,18 @@ This is a critical stage of the ETL pipeline where financial validations are per
 -   **AT03_CREDITOS**: Requerido para la validación de `valor_minimo_avaluo` y `Fecha_Avalúo_Errada`. Contiene detalles de créditos cruciales para el análisis.
 -   **BASE_AT12**: Archivo principal a ser transformado.
 -   **Otros archivos**: `SOBREGIRO_AT12`, `TDC_AT12`, `VALORES_AT12` son archivos auxiliares que enriquecen la transformación de AT12.
+
+---
+
+### **Anexo: Campos Monetarios (normalizados a punto)**
+- BASE_AT12: `Valor_Inicial`, `Valor_Garantia`, `Valor_Ponderado`, `Importe`.
+- TDC_AT12: `Valor_Inicial`, `Valor_Garantía`, `Valor_Ponderado`, `Importe`, `LIMITE`, `SALDO`.
+- SOBREGIRO_AT12: `Valor_Inicial`, `Valor_Garantia`, `valor_ponderado`, `Importe`.
+- VALORES_AT12: `Valor_Inicial`, `Valor_Garantia`, `Valor_Ponderado`, `Importe`.
+- AT02_CUENTAS: `Monto`, `Monto_Pignorado`, `Intereses_por_Pagar`, `Importe`, `Importe_por_pagar`, `Tasa`.
+- AT03_CREDITOS: `valor_inicial`, `intereses_x_cobrar`, `saldo`, `provision`, `provison_NIIF`, `provision_no_NIIF`, `saldo_original`, `mto_garantia_1..5`, `mto_xv30d/60d/90d/120d/180d/1a`, `Mto_xV1a5a`, `Mto_xV5a10a`, `Mto_xVm10a`, `mto_v30d/60d/90d/120d/180d/1a`, `mto_vm1a`, `mto_a_pagar`, `interes_diferido`, `tasa_interes`, `monto_ult_pago_capital`, `monto_ult_pago_interes`.
+- AT03_TDC: `valor_inicial`, `intereses_x_cobrar`, `saldo`, `provision`, `provison_niif`, `provision_no_niif`, `saldo_original_2`, `mto_garantia_1..5`, `mto_xv30d/60d/90d/120d/180d/1a`, `mto_xv1a5a`, `mto_xv5a10a`, `mto_xvm10a`, `mto_v30d/60d/90d/120d/180d/1a`, `mto_vm1a`, `mto_a_pagar`, `interes_dif`, `tasa_interes`, `monto_ultimo_pago_cap`, `monto_ultimo_pago_int`.
+- GARANTIA_AUTOS_AT12: `saldocapital`, `monto_asegurado`.
+- POLIZA_HIPOTECAS_AT12: `saldocapital`, `seguro_incendio` (si aplica como monto).
+- AFECTACIONES_AT12: `at_saldo`.
+- VALOR_MINIMO_AVALUO_AT12: `at_valor_garantia`, `at_valor_pond_garantia`, `valor_garantia`, `nuevo_at_valor_garantia`, `nuevo_at_valor_pond_garantia`, `venta_rapida`, `factor`.

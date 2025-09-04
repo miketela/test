@@ -169,17 +169,45 @@ class AT12TransformationEngine(TransformationEngine):
         if df is None or df.empty:
             return df
         df = df.copy()
-        candidates = [
-            # Generic monetary columns
+        # Static candidates by common naming
+        static_candidates = set([
             'Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe',
-            # AT02 specific
             'Monto', 'Monto_Pignorado', 'Intereses_por_Pagar', 'Importe_por_pagar',
-            # AT03 specific
             'valor_inicial', 'intereses_x_cobrar', 'saldo', 'provision', 'provison_NIIF', 'provision_no_NIIF',
             'mto_garantia_1', 'mto_garantia_2', 'mto_garantia_3', 'mto_garantia_4', 'mto_garantia_5',
-            # TDC specific aggregates
-            'LIMITE', 'SALDO'
+            'mto_xv30d', 'mto_xv60d', 'mto_xv90d', 'mto_xv120d', 'mto_xv180d', 'mto_xv1a',
+            'Mto_xV1a5a', 'Mto_xV5a10a', 'Mto_xVm10a',
+            'mto_v30d', 'mto_v60d', 'mto_v90d', 'mto_v120d', 'mto_v180d', 'mto_v1a', 'mto_vm1a',
+            'mto_a_pagar', 'saldo_original', 'saldo_original_2', 'saldocapital', 'monto_asegurado',
+            'LIMITE', 'SALDO', 'interes_diferido', 'interes_dif', 'tasa_interes', 'Tasa'
+        ])
+
+        # Regex-based candidates by pattern (case-insensitive)
+        import re as _re
+        patterns = [
+            r'^(?i)mto_.*',
+            r'^(?i)monto_.*',
+            r'(?i)valor',
+            r'(?i)importe',
+            r'(?i)saldo',
+            r'(?i)provis',
+            r'(?i)interes',
+            r'(?i)^tasa(_|$)'
         ]
+        # Build full candidate set
+        cols = list(df.columns)
+        dynamic = set()
+        for c in cols:
+            cs = str(c)
+            for pat in patterns:
+                try:
+                    if _re.search(pat, cs):
+                        dynamic.add(c)
+                        break
+                except Exception:
+                    continue
+        candidates = static_candidates.union(dynamic)
+
         for col in candidates:
             if col in df.columns:
                 try:
@@ -994,6 +1022,8 @@ class AT12TransformationEngine(TransformationEngine):
         - Target column: 'Número_Garantía' (exact accent and casing).
         - Key for assignment: (Id_Documento, Tipo_Facilidad).
         - Sequential from 855500; reuse for repeated keys within the run.
+        - Output formatting: always 10 digits (left‑padded with zeros) when numeric.
+        - Preserve original non-empty values (normalize to 10 digits only if purely numeric).
         - No incidences emitted; logging only.
         """
         self.logger.info("Generating/normalizing Número_Garantía for TDC_AT12")
@@ -1026,8 +1056,6 @@ class AT12TransformationEngine(TransformationEngine):
             # Create it explicitly if mapping hasn't run yet
             target_col = 'Número_Garantía'
             df[target_col] = None
-        # Clear target column before assignment
-        df[target_col] = None
         # Sort ascending by Id_Documento as per new TDC context
         df = df.sort_values('Id_Documento', ascending=True).reset_index(drop=True)
 
@@ -1042,25 +1070,29 @@ class AT12TransformationEngine(TransformationEngine):
         for idx, row in df.iterrows():
             # Use tuple key to avoid collisions from string concatenation
             unique_key = (str(row.get('Id_Documento', '')), str(row.get('Tipo_Facilidad', '')))
-            if unique_key not in unique_keys:
-                unique_keys[unique_key] = next_number
-                df.at[idx, target_col] = next_number
-                incidences.append({
-                    'Index': idx,
-                    'Id_Documento': row.get('Id_Documento', ''),
-                    'Numero_Prestamo': row.get('Numero_Prestamo', ''),
-                    'Tipo_Facilidad': row.get('Tipo_Facilidad', ''),
-                    'Numero_Garantia_Assigned': next_number
-                })
-                next_number += 1
+            current_val = row.get(target_col)
+            # Helper to pad numeric strings to 10 digits
+            def _pad10(val: str) -> str:
+                s = str(val).strip()
+                return s.zfill(10) if s.isdigit() else s
+            if pd.notna(current_val) and str(current_val).strip() != '':
+                # Preserve provided value; enforce 10-digit padding only if numeric
+                df.at[idx, target_col] = _pad10(current_val)
             else:
-                df.at[idx, target_col] = unique_keys[unique_key]
+                # Assign by key using sequential registry
+                if unique_key not in unique_keys:
+                    unique_keys[unique_key] = next_number
+                    assigned = str(next_number)
+                    next_number += 1
+                else:
+                    assigned = str(unique_keys[unique_key])
+                df.at[idx, target_col] = _pad10(assigned)
                 incidences.append({
                     'Index': idx,
                     'Id_Documento': row.get('Id_Documento', ''),
                     'Numero_Prestamo': row.get('Numero_Prestamo', ''),
                     'Tipo_Facilidad': row.get('Tipo_Facilidad', ''),
-                    'Numero_Garantia_Assigned': unique_keys[unique_key]
+                    'Numero_Garantia_Assigned': df.at[idx, target_col]
                 })
 
         # Log only (no incidences for Numero_Garantia generation)
