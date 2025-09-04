@@ -1221,7 +1221,7 @@ class AT12TransformationEngine(TransformationEngine):
             return df
 
         # Prepare AT02 right frame with target date names
-        need_cols = ['Fecha_proceso', 'Fecha_Vencimiento']
+        need_cols = ['Fecha_inicio', 'Fecha_Vencimiento']
         if any(c not in at02_df.columns for c in need_cols):
             self.logger.error(
                 f"AT02 required date columns missing for SOBREGIRO mapping: {[c for c in need_cols if c not in at02_df.columns]}"
@@ -1230,7 +1230,7 @@ class AT12TransformationEngine(TransformationEngine):
 
         right = at02_df.copy()
         right = right.rename(columns={
-            'Fecha_proceso': 'Fecha_Ultima_Actualizacion_at02',
+            'Fecha_inicio': 'Fecha_Ultima_Actualizacion_at02',
             'Fecha_Vencimiento': 'Fecha_Vencimiento_at02'
         })
 
@@ -1273,6 +1273,7 @@ class AT12TransformationEngine(TransformationEngine):
 
         # Apply mapped dates with fallback to base
         out = df.reset_index(drop=True).copy()
+        orig_out = out.copy()
 
         if 'Fecha_Ultima_Actualizacion' in out.columns:
             base_col = 'Fecha_Ultima_Actualizacion'
@@ -1302,6 +1303,50 @@ class AT12TransformationEngine(TransformationEngine):
             incidences.append({'Field': 'Fecha_Vencimiento', 'Updated_From_AT02': int(updated), 'Action': 'Date mapping applied from AT02_CUENTAS'})
         if incidences:
             self._store_incidences('SOBREGIRO_DATE_MAPPING', incidences, context)
+
+        # Export per-row changes with ORIGINAL columns as specified in context
+        try:
+            changed_mask = None
+            changed_cols = []
+            for col in ['Fecha_Ultima_Actualizacion', 'Fecha_Vencimiento']:
+                if col in out.columns:
+                    cm = out[col].astype(str) != orig_out[col].astype(str)
+                    changed_mask = cm if changed_mask is None else (changed_mask | cm)
+                    if cm.any():
+                        changed_cols.append(col)
+            if changed_mask is not None and changed_mask.any():
+                export_df = out.loc[changed_mask].copy()
+                # Insert ORIGINAL columns next to updated ones
+                try:
+                    cols = list(export_df.columns)
+                    new_cols = []
+                    for c in cols:
+                        new_cols.append(c)
+                        if c in changed_cols:
+                            export_df[f"{c}_ORIGINAL"] = orig_out.loc[export_df.index, c]
+                            new_cols.append(f"{c}_ORIGINAL")
+                    export_df = export_df[new_cols]
+                except Exception:
+                    # Fallback: appended ORIGINAL columns
+                    for c in changed_cols:
+                        export_df[f"{c}_ORIGINAL"] = orig_out.loc[export_df.index, c]
+                # Save to DATE_MAPPING_CHANGES_SOBREGIRO_[YYYYMMDD].csv
+                out_path = context.paths.incidencias_dir / f"DATE_MAPPING_CHANGES_SOBREGIRO_{context.period}.csv"
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                export_df.to_csv(
+                    out_path,
+                    index=False,
+                    encoding='utf-8',
+                    sep=getattr(context.config, 'output_delimiter', '|'),
+                    quoting=1,
+                    date_format='%Y%m%d'
+                )
+                try:
+                    self.logger.info(f"DATE_MAPPING_CHANGES_SOBREGIRO -> {out_path.name} ({len(export_df)} records)")
+                except Exception:
+                    pass
+        except Exception as e:
+            self.logger.warning(f"Failed to export DATE_MAPPING_CHANGES_SOBREGIRO: {e}")
 
         return out
     
@@ -1731,6 +1776,14 @@ class AT12TransformationEngine(TransformationEngine):
                 processed_filename = f"AT12_{subtype}_{context.period}.csv"
                 processed_path = context.paths.get_procesado_path(processed_filename)
                 
+                # Drop internal numeric helper columns (e.g., __num)
+                try:
+                    drop_cols = [c for c in df.columns if str(c).endswith('__num')]
+                    if drop_cols:
+                        df = df.drop(columns=drop_cols)
+                except Exception:
+                    pass
+                
                 # Save processed file
                 if self._save_dataframe_as_csv(df, processed_path):
                     result.processed_files.append(processed_path)
@@ -1766,6 +1819,28 @@ class AT12TransformationEngine(TransformationEngine):
                     # Get appropriate delimiter for this subtype
                     delimiter = delimiter_mapping.get(subtype, '|')  # Default to pipe
                     
+                    # Prepare a copy for TXT output
+                    out_df = df.copy()
+                    # Drop internal numeric helper columns
+                    try:
+                        drop_cols = [c for c in out_df.columns if str(c).endswith('__num')]
+                        if drop_cols:
+                            out_df.drop(columns=drop_cols, inplace=True)
+                    except Exception:
+                        pass
+                    
+                    # For space-delimited files (TDC/SOBREGIRO/VALORES), ensure dot decimal in money fields
+                    try:
+                        if delimiter == ' ':
+                            money_candidates = [
+                                'Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe'
+                            ]
+                            for col in money_candidates:
+                                if col in out_df.columns:
+                                    out_df[col] = out_df[col].astype(str).str.replace(',', '.', regex=False)
+                    except Exception:
+                        pass
+                    
                     # Generate filename for this subtype
                     subtype_filename = self._filename_parser.generate_output_filename(
                         atom=subtype,
@@ -1780,9 +1855,9 @@ class AT12TransformationEngine(TransformationEngine):
                     
                     # Write DataFrame to TXT file without header
                     with open(consolidated_path, 'w', encoding='utf-8') as f:
-                        for _, row in df.iterrows():
+                        for _, row in out_df.iterrows():
                             # Convert all values to string and join with delimiter
-                            record = delimiter.join(str(row[col]) for col in df.columns)
+                            record = delimiter.join(str(row[col]) for col in out_df.columns)
                             f.write(record + '\n')
                     
                     consolidated_files.append(consolidated_path)
