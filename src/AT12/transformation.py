@@ -1165,6 +1165,16 @@ class AT12TransformationEngine(TransformationEngine):
         right = at02_df[[at02_key, at02_start, at02_end]].copy()
         right.columns = ['_key_at02', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']
 
+        # Trim whitespace and normalize empty-like tokens in AT02 date fields
+        try:
+            for col in ['Fecha_inicio_at02', 'Fecha_Vencimiento_at02']:
+                if col in right.columns:
+                    s = right[col].astype(str).str.strip()
+                    s = s.replace({'': pd.NA, 'nan': pd.NA, 'None': pd.NA, 'NaT': pd.NA}, regex=False)
+                    right[col] = s
+        except Exception:
+            pass
+
         # Normalize join keys on both sides to improve matches and avoid format issues
         left = df.copy()
         left['_key_tdc'] = left[tdc_key].astype(str)
@@ -1216,13 +1226,17 @@ class AT12TransformationEngine(TransformationEngine):
             tgt_last_update = 'Fecha_Última_Actualización'
         tgt_venc = 'Fecha_Vencimiento' if 'Fecha_Vencimiento' in merged.columns else None
 
+        def _has_val(v: object) -> bool:
+            sv = str(v).strip()
+            return sv not in ('', 'nan', 'None', 'NaT')
+
         for idx, row in merged.iterrows():
             updated = False
-            if pd.notna(row.get('Fecha_inicio_at02')) and tgt_last_update:
-                merged.at[idx, tgt_last_update] = row['Fecha_inicio_at02']
+            if tgt_last_update and _has_val(row.get('Fecha_inicio_at02')):
+                merged.at[idx, tgt_last_update] = str(row.get('Fecha_inicio_at02')).strip()
                 updated = True
-            if pd.notna(row.get('Fecha_Vencimiento_at02')) and tgt_venc:
-                merged.at[idx, tgt_venc] = row['Fecha_Vencimiento_at02']
+            if tgt_venc and _has_val(row.get('Fecha_Vencimiento_at02')):
+                merged.at[idx, tgt_venc] = str(row.get('Fecha_Vencimiento_at02')).strip()
                 updated = True
             if updated:
                 incidences.append({
@@ -1293,6 +1307,16 @@ class AT12TransformationEngine(TransformationEngine):
             'Fecha_Vencimiento': 'Fecha_Vencimiento_at02'
         })
 
+        # Trim whitespace and normalize empty-like tokens in AT02 date fields
+        try:
+            for col in ['Fecha_Ultima_Actualizacion_at02', 'Fecha_Vencimiento_at02']:
+                if col in right.columns:
+                    s = right[col].astype(str).str.strip()
+                    s = s.replace({'': pd.NA, 'nan': pd.NA, 'None': pd.NA, 'NaT': pd.NA}, regex=False)
+                    right[col] = s
+        except Exception:
+            pass
+
         import pandas as _pd
         if join_mode == 'single_key':
             left = df.reset_index(drop=True).copy()
@@ -1339,7 +1363,9 @@ class AT12TransformationEngine(TransformationEngine):
             if 'Fecha_Ultima_Actualizacion_base' in merged.columns:
                 base_col = 'Fecha_Ultima_Actualizacion_base'
             if 'Fecha_Ultima_Actualizacion_at02' in merged.columns:
-                out['Fecha_Ultima_Actualizacion'] = merged['Fecha_Ultima_Actualizacion_at02'].fillna(merged.get(base_col))
+                # Clean new values: treat empty-like tokens as NA for proper fallback
+                nu = merged['Fecha_Ultima_Actualizacion_at02'].astype(str).str.strip().replace({'': pd.NA, 'nan': pd.NA, 'None': pd.NA, 'NaT': pd.NA}, regex=False)
+                out['Fecha_Ultima_Actualizacion'] = nu.fillna(merged.get(base_col))
             else:
                 out['Fecha_Ultima_Actualizacion'] = merged.get(base_col)
 
@@ -1348,7 +1374,8 @@ class AT12TransformationEngine(TransformationEngine):
             if 'Fecha_Vencimiento_base' in merged.columns:
                 base_col = 'Fecha_Vencimiento_base'
             if 'Fecha_Vencimiento_at02' in merged.columns:
-                out['Fecha_Vencimiento'] = merged['Fecha_Vencimiento_at02'].fillna(merged.get(base_col))
+                nv = merged['Fecha_Vencimiento_at02'].astype(str).str.strip().replace({'': pd.NA, 'nan': pd.NA, 'None': pd.NA, 'NaT': pd.NA}, regex=False)
+                out['Fecha_Vencimiento'] = nv.fillna(merged.get(base_col))
             else:
                 out['Fecha_Vencimiento'] = merged.get(base_col)
 

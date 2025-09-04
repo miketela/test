@@ -233,7 +233,7 @@ This stage applies more complex business rules and generates specific reports fo
         *   Other fields are left blank for Operations to complete.
 
 ---
-
+valo de importe de todos lo insumos debe ser igual al valor de la garantia
 #### **Stage 4: Final Validation and Value Correction**
 This is a critical stage of the ETL pipeline where financial validations are performed and final values are set before output generation.
 
