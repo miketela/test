@@ -480,16 +480,38 @@ class AT12Processor:
                 
                 # Generate destination filename with run_id
                 base_name = source_path.stem
-                extension = source_path.suffix
-                dest_filename = f"{base_name}__run-{run_id}{extension}"
-                dest_path = data_dir / dest_filename
-                
-                # Copy with versioning
-                final_path, was_versioned = copy_with_versioning(source_path, dest_path, run_id)
-                final_path = final_path
-                copied_files.append(str(final_path))
-                
-                self.logger.info(f"Copied {source_path.name} → {final_path.name}")
+                extension = source_path.suffix.lower()
+
+                # Convert TXT inputs to CSV in RAW to unify downstream handling
+                if extension == '.txt':
+                    dest_filename = f"{base_name}__run-{run_id}.csv"
+                    dest_path = data_dir / dest_filename
+                    # Read TXT with auto-detected encoding and delimiter, then write CSV UTF-8
+                    import pandas as _pd
+                    try:
+                        csv_reader = self.file_reader.csv_reader
+                        file_encoding = csv_reader._get_file_encoding(source_path)
+                        sep = csv_reader._resolve_csv_delimiter(source_path, file_encoding)
+                        if sep == ' ':
+                            df = _pd.read_csv(source_path, dtype=str, header=0, sep=r'\s+', engine='python', keep_default_na=False, encoding=file_encoding)
+                        else:
+                            df = _pd.read_csv(source_path, dtype=str, header=0, sep=sep, engine='python', keep_default_na=False, encoding=file_encoding)
+                    except Exception:
+                        # Fallback to UTF-16 with whitespace
+                        df = _pd.read_csv(source_path, dtype=str, header=0, sep=r'\s+', engine='python', keep_default_na=False, encoding='utf-16')
+                    # Save as CSV (comma delimiter) in UTF-8 to RAW
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    df.to_csv(dest_path, index=False, encoding='utf-8')
+                    copied_files.append(str(dest_path))
+                    self.logger.info(f"Converted {source_path.name} → {dest_path.name}")
+                else:
+                    dest_filename = f"{base_name}__run-{run_id}{source_path.suffix}"
+                    dest_path = data_dir / dest_filename
+                    # Copy with versioning
+                    final_path, was_versioned = copy_with_versioning(source_path, dest_path, run_id)
+                    final_path = final_path
+                    copied_files.append(str(final_path))
+                    self.logger.info(f"Copied {source_path.name} → {final_path.name}")
                 
             except Exception as e:
                 errors.append(f"{file_path}: Failed to copy - {str(e)}")
