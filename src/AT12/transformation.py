@@ -161,6 +161,26 @@ class AT12TransformationEngine(TransformationEngine):
         """Format numeric series with comma decimal as string (no thousand sep)."""
         return s.map(lambda x: ('' if pd.isna(x) else f"{float(x):.2f}".replace('.', ',')))
 
+    def _get_expected_headers(self, context: TransformationContext, subtype: str) -> list:
+        """Load expected headers for a subtype from schema_headers.json.
+
+        Returns an empty list if schema is unavailable.
+        """
+        try:
+            import json, os
+            from pathlib import Path as _Path
+            schemas_dir = getattr(context.config, 'schemas_dir', None)
+            base_dir = getattr(context.config, 'base_dir', os.getcwd())
+            root = _Path(schemas_dir) if schemas_dir else _Path(base_dir) / 'schemas'
+            schema_file = root / 'AT12' / 'schema_headers.json'
+            if schema_file.exists():
+                data = json.loads(schema_file.read_text(encoding='utf-8'))
+                if isinstance(data, dict) and subtype in data:
+                    return list(data[subtype].keys())
+        except Exception:
+            pass
+        return []
+
     def _enforce_dot_decimal(self, df: pd.DataFrame) -> pd.DataFrame:
         """Force dot decimals in common monetary columns across subtypes for output files.
 
@@ -1952,10 +1972,22 @@ class AT12TransformationEngine(TransformationEngine):
                         pass
                     # Standardize columns to schema order/names for TXT
                     try:
-                        expected = _get_expected_headers(subtype)
+                        expected = self._get_expected_headers(context, subtype)
                         if expected:
                             from src.core.header_mapping import HeaderMapper as _HM
                             out_df = _HM.standardize_dataframe_to_schema(out_df, subtype, expected)
+                            # Verify column count and order against schema
+                            cols = list(out_df.columns)
+                            if len(cols) != len(expected) or cols != expected:
+                                msg = (
+                                    f"Schema mismatch for {subtype}: expected {len(expected)} columns, got {len(cols)}; "
+                                    f"order_ok={cols == expected}"
+                                )
+                                self.logger.error(msg)
+                                # Record error and skip writing this TXT to avoid malformed output
+                                if hasattr(result, 'errors'):
+                                    result.errors.append(msg)
+                                continue
                     except Exception:
                         pass
                     # Ensure dot decimal in money fields for all TXT outputs
