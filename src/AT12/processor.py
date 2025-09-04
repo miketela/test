@@ -499,7 +499,19 @@ class AT12Processor:
                     except Exception:
                         # Fallback to UTF-16 with whitespace
                         df = _pd.read_csv(source_path, dtype=str, header=0, sep=r'\s+', engine='python', keep_default_na=False, encoding='utf-16')
-                    # Enforce dot decimals on common monetary columns before saving to RAW CSV
+                    # Standardize columns to schema and enforce dot decimals before saving to RAW CSV
+                    try:
+                        # Parse subtype from filename
+                        from ..core.naming import FilenameParser as _FP
+                        from ..core.header_mapping import HeaderMapper as _HM
+                        # Use existing parser if available
+                        parsed = self.filename_parser.parse_filename(source_path.name)
+                        subtype = parsed.subtype if parsed and parsed.is_valid else None
+                        if subtype and isinstance(self.schema_headers, dict) and subtype in self.schema_headers:
+                            expected = list(self.schema_headers[subtype].keys())
+                            df = _HM.standardize_dataframe_to_schema(df, subtype, expected)
+                    except Exception as e:
+                        self.logger.warning(f"Schema standardization skipped for {source_path.name}: {e}")
                     try:
                         money_candidates = [
                             'Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe',
@@ -519,7 +531,7 @@ class AT12Processor:
                     copied_files.append(str(dest_path))
                     self.logger.info(f"Converted {source_path.name} → {dest_path.name}")
                 else:
-                    # Normalize decimals for CSV sources; copy others as-is
+                    # Normalize/standardize CSV sources; copy others as-is
                     if extension in ('.csv', '.CSV'):
                         dest_filename = f"{base_name}__run-{run_id}.csv"
                         dest_path = data_dir / dest_filename
@@ -537,6 +549,16 @@ class AT12Processor:
                                 keep_default_na=False,
                                 encoding=file_encoding
                             )
+                            # Standardize columns to schema when possible
+                            try:
+                                from ..core.header_mapping import HeaderMapper as _HM
+                                parsed = self.filename_parser.parse_filename(source_path.name)
+                                subtype = parsed.subtype if parsed and parsed.is_valid else None
+                                if subtype and isinstance(self.schema_headers, dict) and subtype in self.schema_headers:
+                                    expected = list(self.schema_headers[subtype].keys())
+                                    df = _HM.standardize_dataframe_to_schema(df, subtype, expected)
+                            except Exception as se:
+                                self.logger.warning(f"Schema standardization skipped for {source_path.name}: {se}")
                             # Enforce dot decimals on common monetary columns
                             money_candidates = [
                                 'Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe',

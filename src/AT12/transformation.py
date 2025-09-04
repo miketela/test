@@ -1293,18 +1293,24 @@ class AT12TransformationEngine(TransformationEngine):
             )
             return df
 
-        # Prepare AT02 right frame with target date names
-        need_cols = ['Fecha_inicio', 'Fecha_Vencimiento']
-        if any(c not in at02_df.columns for c in need_cols):
+        # Resolve AT02 date columns robustly (accept common variants)
+        at02_start = self._col_any(at02_df, ['Fecha_inicio', 'Fecha_Inicio', 'fecha_inicio', 'Fecha_proceso'])
+        at02_end = self._col_any(at02_df, ['Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento'])
+        missing = []
+        if not at02_start:
+            missing.append('Fecha_inicio')
+        if not at02_end:
+            missing.append('Fecha_Vencimiento')
+        if missing:
             self.logger.error(
-                f"AT02 required date columns missing for SOBREGIRO mapping: {[c for c in need_cols if c not in at02_df.columns]}"
+                f"AT02 required date columns missing for SOBREGIRO mapping: {missing}"
             )
             return df
 
-        right = at02_df.copy()
+        right = at02_df[[at02_start, at02_end, 'Identificacion_Cuenta']].copy() if 'Identificacion_Cuenta' in at02_df.columns else at02_df.copy()
         right = right.rename(columns={
-            'Fecha_inicio': 'Fecha_Ultima_Actualizacion_at02',
-            'Fecha_Vencimiento': 'Fecha_Vencimiento_at02'
+            at02_start: 'Fecha_Ultima_Actualizacion_at02',
+            at02_end: 'Fecha_Vencimiento_at02'
         })
 
         # Trim whitespace and normalize empty-like tokens in AT02 date fields
@@ -1856,6 +1862,23 @@ class AT12TransformationEngine(TransformationEngine):
                                 transformed_data: Dict[str, pd.DataFrame], 
                                 result: TransformationResult) -> None:
         """Generate processed CSV files."""
+        # Helper to get expected headers from schema file
+        def _get_expected_headers(subtype: str) -> list:
+            try:
+                import json, os
+                from pathlib import Path as _Path
+                schemas_dir = getattr(context.config, 'schemas_dir', None)
+                base_dir = getattr(context.config, 'base_dir', os.getcwd())
+                root = _Path(schemas_dir) if schemas_dir else _Path(base_dir) / 'schemas'
+                schema_file = root / 'AT12' / 'schema_headers.json'
+                if schema_file.exists():
+                    data = json.loads(schema_file.read_text(encoding='utf-8'))
+                    if isinstance(data, dict) and subtype in data:
+                        return list(data[subtype].keys())
+            except Exception:
+                pass
+            return []
+
         for subtype, df in transformed_data.items():
             if not df.empty:
                 # Generate processed filename
@@ -1867,6 +1890,14 @@ class AT12TransformationEngine(TransformationEngine):
                     drop_cols = [c for c in df.columns if str(c).endswith('__num')]
                     if drop_cols:
                         df = df.drop(columns=drop_cols)
+                except Exception:
+                    pass
+                # Standardize columns to schema order/names
+                try:
+                    expected = _get_expected_headers(subtype)
+                    if expected:
+                        from src.core.header_mapping import HeaderMapper as _HM
+                        df = _HM.standardize_dataframe_to_schema(df, subtype, expected)
                 except Exception:
                     pass
                 # Enforce dot decimals in processed CSV outputs
@@ -1917,6 +1948,14 @@ class AT12TransformationEngine(TransformationEngine):
                         drop_cols = [c for c in out_df.columns if str(c).endswith('__num')]
                         if drop_cols:
                             out_df.drop(columns=drop_cols, inplace=True)
+                    except Exception:
+                        pass
+                    # Standardize columns to schema order/names for TXT
+                    try:
+                        expected = _get_expected_headers(subtype)
+                        if expected:
+                            from src.core.header_mapping import HeaderMapper as _HM
+                            out_df = _HM.standardize_dataframe_to_schema(out_df, subtype, expected)
                     except Exception:
                         pass
                     # Ensure dot decimal in money fields for all TXT outputs
