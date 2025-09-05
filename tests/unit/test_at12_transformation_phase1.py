@@ -96,18 +96,21 @@ def test_rule_18_auto_comercial_org_code(engine_and_context):
 def test_rule_19_auto_num_poliza_from_join(engine_and_context):
     engine, context = engine_and_context
     df = pd.DataFrame({
-        'Tipo_Garantia': ['0101', '0101', '0106'],
+        'Tipo_Garantia': ['0101', '0103', '0106'],
         'Numero_Prestamo': ['A001', 'A002', 'A003'],
         'Id_Documento': ['', ' ', '']
     })
     autos = pd.DataFrame({
         'numcred': ['A001', 'A002'],
-        'num_poliza': ['POL-1', 'POL-2']
+        # A001 has non-digit policy -> should NOT update; A002 numeric -> should update
+        'num_poliza': ['POL-1', '12345']
     })
     source_data = {'GARANTIA_AUTOS_AT12': autos}
     out = engine._apply_error_poliza_auto_correction(df, context, source_data)
-    assert out.loc[0, 'Id_Documento'] == 'POL-1'
-    assert out.loc[1, 'Id_Documento'] == 'POL-2'
+    # A001: non-digit policy -> keep original empty
+    assert out.loc[0, 'Id_Documento'] == ''
+    # A002 (0103): numeric policy -> update
+    assert out.loc[1, 'Id_Documento'] == '12345'
     # Not applicable to 0106
     assert out.loc[2, 'Id_Documento'] == ''
 
@@ -123,4 +126,3 @@ def test_rule_110_inmueble_sin_avaluadora_org_code(engine_and_context):
     assert out.loc[2, 'Nombre_Organismo'] == '774'
     # Not applicable to 0106
     assert out.loc[3, 'Nombre_Organismo'] == ''
-

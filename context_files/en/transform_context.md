@@ -58,7 +58,8 @@ A single, auditable ETL pipeline for AT12: cleaning → enrichment → business 
 - Money fields: outputs use dot (`.`) decimals consistently.
 
 ### VALORES_AT12
-- Use reference from BASE_AT12 where `Tipo_Garantia='0507'` to populate fields like `Clave_Pais`, `Clave_Empresa`; generate `Numero_Garantia` padded when required by specification.
+- Use reference from BASE_AT12 where `Tipo_Garantia='0507'` to populate fields like `Clave_Pais`, `Clave_Empresa`.
+- Numero_Garantia (0507): if TDC was processed in this run and a last TDC number exists, start from (last_TDC + 500) and assign sequentially to VALORES records (padded to 10 digits). Otherwise, fall back to a persistent sequence.
 
 ## Stage 3: Business Reporting — FUERA_CIERRE_AT12
 - Create Excel with tabs: DESEMBOLSO (last three months), PYME (Segmento ∈ {PYME,BEC}), CARTERA (rest).
@@ -70,14 +71,15 @@ A single, auditable ETL pipeline for AT12: cleaning → enrichment → business 
 - Join with `AT03_CREDITOS` by `at_num_de_prestamos = num_cta`.
 - If `saldo > nuevo_at_valor_garantia`: report (keep original values). Else: update `at_valor_garantia` and `at_valor_pond_garantia`.
 
-## Stage 5: Final Outputs (Consolidation)
+- Stage 5: Final Outputs (Consolidation)
 - Export headerless TXT:
   - `BASE_AT12` delimited by `|`.
   - `TDC_AT12`, `SOBREGIRO_AT12`, `VALORES_AT12` delimited by a single space.
 - Decimals policy: all monetary fields are written with dot (`.`) decimal (no comma) across RAW (TXT→CSV conversion), processed CSVs, and consolidated TXTs. Internal helper columns (e.g., `__num`) are excluded from outputs.
+- Schema enforcement: before writing TXT, standardize DataFrame to the subtype schema (order and names) and verify column count and order. On mismatch, log error and skip writing the TXT to avoid malformed output.
 - Files written under `transforms/AT12/consolidated/`.
 
-Note (Input/RAW normalization): TXT inputs (including Excel “Unicode Text”) are accepted; during Explore, TXT files are converted to UTF‑8 CSV in RAW with auto‑detected encoding/delimiter and dot‑decimal normalization. CSV sources from input are also normalized to dot decimals during RAW copy.
+Note (Input/RAW normalization): TXT inputs (including Excel “Unicode Text”) are accepted; during Explore, TXT files are converted to UTF‑8 CSV in RAW with auto‑detected encoding/delimiter and dot‑decimal normalization. TXT→CSV and CSV sources from input are standardized to the subtype schema (same column count and order). Processed CSVs and TXT outputs keep this standardization.
 
 ## Incidence CSV Naming
 - Per-rule subsets (full rows): `[RULE]_[SUBTYPE]_[YYYYMMDD].csv` (e.g., `FECHA_AVALUO_ERRADA_BASE_AT12_20250701.csv`). Each corrected field includes a side-by-side `_ORIGINAL` column.
