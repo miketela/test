@@ -2925,14 +2925,45 @@ class AT12TransformationEngine(TransformationEngine):
         except Exception:
             orig_idoc = None
         if mask.any():
-            if 'GARANTIA_AUTOS_AT12' not in source_data or source_data['GARANTIA_AUTOS_AT12'].empty:
+            # Resolve GARANTIA_AUTOS from source_data or fallback to RAW/SOURCE if missing/empty
+            autos_df = None
+            if 'GARANTIA_AUTOS_AT12' in source_data and not getattr(source_data['GARANTIA_AUTOS_AT12'], 'empty', True):
+                autos_df = source_data['GARANTIA_AUTOS_AT12']
+            else:
+                # Fallback loader to improve robustness when selection/RAW differs
+                try:
+                    from pathlib import Path as _Path
+                    data_raw = _Path(getattr(context.config, 'data_raw_dir', 'data/raw'))
+                    run = context.run_id
+                    # Prefer exact run; accept any date
+                    candidates = sorted(list(data_raw.glob(f"GARANTIA_AUTOS_AT12_*__run-{run}.csv")))
+                    if not candidates:
+                        candidates = sorted(list(data_raw.glob("GARANTIA_AUTOS_AT12_*__run-*.csv")))
+                    if not candidates:
+                        # Try original source directory
+                        source_dir = _Path(getattr(context.config, 'source_dir', 'source'))
+                        src_cand = sorted(list(source_dir.glob("GARANTIA_AUTOS_AT12_*.*")))
+                        if src_cand:
+                            candidates = [src_cand[-1]]
+                    if candidates:
+                        cand = candidates[-1]
+                        try:
+                            autos_df = self._file_reader.read_file(cand)
+                        except Exception:
+                            # As last resort, pandas read
+                            import pandas as _pd
+                            autos_df = _pd.read_csv(cand, dtype=str, keep_default_na=False)
+                        self.logger.info(f"AUTO_POLICY fallback loaded {cand.name} with {len(autos_df)} records")
+                except Exception as e:
+                    self.logger.warning(f"AUTO_POLICY fallback load failed: {e}")
+
+            if autos_df is None or getattr(autos_df, 'empty', True):
                 self.logger.warning("GARANTIA_AUTOS_AT12 data not available for auto policy Id_Documento completion")
                 try:
                     self.logger.info("Skipping AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS: GARANTIA_AUTOS_AT12 not available")
                 except Exception:
                     pass
             else:
-                autos_df = source_data['GARANTIA_AUTOS_AT12']
                 if 'numcred' in autos_df.columns and 'num_poliza' in autos_df.columns:
                     autos_df = autos_df.copy()
                     autos_df['_norm_key'] = self._normalize_join_key(autos_df['numcred'])
@@ -2969,12 +3000,16 @@ class AT12TransformationEngine(TransformationEngine):
                         orig_importe = orig_val_gar = orig_last_upd = orig_venc = None
                     # Prepare join diagnostics
                     diag_rows = []
+                    # Count diagnostics
+                    matched = 0
+                    applied_count = 0
                     for idx in df[mask].index:
                         key = base_norm.loc[idx]
                         if pd.isna(key):
                             continue
                         val = map_poliza.get(key, None)
                         if pd.notna(val):
+                            matched += 1
                             sval = str(val).strip()
                             # Constraint: require digits-only policy number
                             if sval.isdigit():
@@ -3040,6 +3075,7 @@ class AT12TransformationEngine(TransformationEngine):
                                     'applied': True,
                                     'reason': 'NUMERIC_POLICY'
                                 })
+                                applied_count += 1
                             else:
                                 # policy has letters; skip all updates
                                 diag_rows.append({
@@ -3058,6 +3094,12 @@ class AT12TransformationEngine(TransformationEngine):
                                 'applied': False,
                                 'reason': 'NOT_FOUND'
                             })
+                    try:
+                        self.logger.info(
+                            f"AUTO_POLICY: candidates={int(mask.sum())}, autos_rows={len(autos_df)}, matched={matched}, applied={applied_count}"
+                        )
+                    except Exception:
+                        pass
 
         if incidences:
             self._store_incidences('AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', incidences, context)
