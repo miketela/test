@@ -2976,12 +2976,12 @@ class AT12TransformationEngine(TransformationEngine):
                             break
                     map_amount = autos_df.set_index('_norm_key')[amount_col] if amount_col else None
                     start_col = None
-                    for c in ['Fecha_inicio', 'fecha_inicio', 'Fecha_Inicio']:
+                    for c in ['Fecha_inicio', 'fecha_inicio', 'Fecha_Inicio','fec_ini_cob']:
                         if c in autos_df.columns:
                             start_col = c
                             break
                     end_col = None
-                    for c in ['Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento']:
+                    for c in ['Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento','fec_fin_cobe']:
                         if c in autos_df.columns:
                             end_col = c
                             break
@@ -3010,8 +3010,8 @@ class AT12TransformationEngine(TransformationEngine):
                         if pd.notna(val):
                             matched += 1
                             sval = str(val).strip()
-                            # Constraint: require digits-only policy number
-                            if sval.isdigit():
+                            # Accept any non-empty policy value (may include letters/symbols)
+                            if sval != '':
                                 original = df.loc[idx, 'Id_Documento']
                                 df.loc[idx, 'Id_Documento'] = sval
                                 if orig_idoc is not None:
@@ -3072,17 +3072,17 @@ class AT12TransformationEngine(TransformationEngine):
                                     'Numero_Prestamo_JOIN_KEY': str(key),
                                     'num_poliza': sval,
                                     'applied': True,
-                                    'reason': 'NUMERIC_POLICY'
+                                    'reason': 'APPLIED'
                                 })
                                 applied_count += 1
                             else:
-                                # policy has letters; skip all updates
+                                # empty policy; skip
                                 diag_rows.append({
                                     'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
                                     'Numero_Prestamo_JOIN_KEY': str(key),
                                     'num_poliza': sval,
                                     'applied': False,
-                                    'reason': 'NON_NUMERIC_POLICY'
+                                    'reason': 'EMPTY_POLICY'
                                 })
                         else:
                             # no policy found for normalized key

@@ -139,7 +139,7 @@ This initial stage focuses on correcting structural and format errors in the `BA
   - Importe and Valor_Garantia: replace with the policy amount (if available).
   - Fecha_Última_Actualización: replace with policy `Fecha_inicio`.
   - Fecha_Vencimiento: replace with policy `Fecha_Vencimiento`.
-- Constraint: If `num_poliza` contains any non-digit characters (letters/text), do not update any fields; keep the original record as-is.
+- Constraint: Accept any non-empty `num_poliza` (may include dashes/letters/symbols). If `num_poliza` is empty, do not update.
 
 **1.10. Inmueble sin Avaluadora (Property without Appraiser)**
 *   **Objective:** To assign an organization code to properties that are missing it.

@@ -102,13 +102,13 @@ def test_rule_19_auto_num_poliza_from_join(engine_and_context):
     })
     autos = pd.DataFrame({
         'numcred': ['A001', 'A002'],
-        # A001 has non-digit policy -> should NOT update; A002 numeric -> should update
+        # A001 alphanumeric policy -> now should update; A002 numeric -> should update
         'num_poliza': ['POL-1', '12345']
     })
     source_data = {'GARANTIA_AUTOS_AT12': autos}
     out = engine._apply_error_poliza_auto_correction(df, context, source_data)
-    # A001: non-digit policy -> keep original empty
-    assert out.loc[0, 'Id_Documento'] == ''
+    # A001 (0101): alphanumeric policy -> update per new rule
+    assert out.loc[0, 'Id_Documento'] == 'POL-1'
     # A002 (0103): numeric policy -> update
     assert out.loc[1, 'Id_Documento'] == '12345'
     # Not applicable to 0106

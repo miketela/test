@@ -278,40 +278,20 @@ class AT12Validator:
             key = base.at[idx, '_key']
             p = policy_map.get(key, None)
             if p is None or str(p).strip() == '':
+                # No policy value in AUTOS → no expectation
                 continue
             sp = str(p).strip()
             idoc_val = base_idoc.loc[idx]
-            if sp.isdigit():
-                # Expect Id_Documento == numeric policy
-                if idoc_val == '':
-                    violations.append({
-                        'file': base_fp.name,
-                        'row': int(idx) + 2,
-                        'Numero_Prestamo_norm': key,
-                        'expected_policy': sp,
-                        'current_Id_Documento': idoc_val,
-                        'violation': 'MISSING_UPDATE_FOR_NUMERIC_POLICY'
-                    })
-                elif idoc_val != sp:
-                    violations.append({
-                        'file': base_fp.name,
-                        'row': int(idx) + 2,
-                        'Numero_Prestamo_norm': key,
-                        'expected_policy': sp,
-                        'current_Id_Documento': idoc_val,
-                        'violation': 'INCORRECT_POLICY_VALUE'
-                    })
-            else:
-                # Non-numeric policy: ensure we did not set non-numeric policy as Id_Documento
-                if idoc_val == sp:
-                    violations.append({
-                        'file': base_fp.name,
-                        'row': int(idx) + 2,
-                        'Numero_Prestamo_norm': key,
-                        'policy_value': sp,
-                        'current_Id_Documento': idoc_val,
-                        'violation': 'NON_NUMERIC_POLICY_APPLIED'
-                    })
+            # Expect exact overwrite with any non-empty policy (letters/dashes allowed)
+            if idoc_val != sp:
+                violations.append({
+                    'file': base_fp.name,
+                    'row': int(idx) + 2,
+                    'Numero_Prestamo_norm': key,
+                    'expected_policy': sp,
+                    'current_Id_Documento': idoc_val,
+                    'violation': 'INCORRECT_POLICY_VALUE'
+                })
 
         # Export violations
         incid_path = None
