@@ -3003,12 +3003,12 @@ class AT12TransformationEngine(TransformationEngine):
                             break
                     map_amount = autos_df.set_index('_norm_key')[amount_col] if amount_col else None
                     start_col = None
-                    for c in ['Fecha_inicio', 'fecha_inicio', 'Fecha_Inicio','fec_ini_cob']:
+                    for c in ['fec_ini_cob', 'fec_ini_co', 'FEC_INI_COB', 'FEC_INI_CO', 'Fecha_inicio', 'fecha_inicio', 'Fecha_Inicio']:
                         if c in autos_df.columns:
                             start_col = c
                             break
                     end_col = None
-                    for c in ['Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento','fec_fin_cobe']:
+                    for c in ['fec_fin_cobe', 'fec_fin_co', 'FEC_FIN_COBE', 'FEC_FIN_CO', 'Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento']:
                         if c in autos_df.columns:
                             end_col = c
                             break
@@ -3045,21 +3045,15 @@ class AT12TransformationEngine(TransformationEngine):
                         if pd.notna(val):
                             matched += 1
                             sval = str(val).strip()
-                            # If exclusion token present in monto_asegurado, skip all updates and keep originals
+                            # Determine exclusion case (tokens in monto_asegurado → only ID + Dates)
+                            excl_case = False
                             try:
                                 if map_excl is not None:
                                     exv = map_excl.get(key, None)
                                     if exv is not None:
                                         exu = str(exv).strip().upper()
                                         if exu in excl_tokens:
-                                            diag_rows.append({
-                                                'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
-                                                'Numero_Prestamo_JOIN_KEY': str(key),
-                                                'num_poliza': sval,
-                                                'applied': False,
-                                                'reason': f'EXCLUSION_TOKEN:{exu}'
-                                            })
-                                            continue
+                                            excl_case = True
                             except Exception:
                                 pass
                             # Accept any non-empty policy value (may include letters/symbols)
@@ -3070,8 +3064,8 @@ class AT12TransformationEngine(TransformationEngine):
                                     orig_idoc.loc[idx] = original
                                 # Optional field updates from autos
                                 updates: Dict[str, Any] = {}
-                                # Amounts
-                                if map_amount is not None:
+                                # Amounts (skip when exclusion token present)
+                                if (not excl_case) and (map_amount is not None):
                                     aval = map_amount.get(key, None)
                                     if pd.notna(aval) and str(aval).strip() != '':
                                         # Base targets
@@ -3118,13 +3112,13 @@ class AT12TransformationEngine(TransformationEngine):
                                 if updates:
                                     incid.update({f'Updated_{k}': v for k, v in updates.items()})
                                 incidences.append(incid)
-                                # Record diag for numeric applied
+                                # Record diag for applied case
                                 diag_rows.append({
                                     'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
                                     'Numero_Prestamo_JOIN_KEY': str(key),
                                     'num_poliza': sval,
                                     'applied': True,
-                                    'reason': 'APPLIED'
+                                    'reason': ('APPLIED_ID_DATES_ONLY' if excl_case else 'APPLIED')
                                 })
                                 applied_count += 1
                             else:
