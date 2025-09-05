@@ -2967,6 +2967,8 @@ class AT12TransformationEngine(TransformationEngine):
                         orig_venc = pd.Series(index=df.index, dtype=object)
                     except Exception:
                         orig_importe = orig_val_gar = orig_last_upd = orig_venc = None
+                    # Prepare join diagnostics
+                    diag_rows = []
                     for idx in df[mask].index:
                         key = base_norm.loc[idx]
                         if pd.isna(key):
@@ -3030,7 +3032,32 @@ class AT12TransformationEngine(TransformationEngine):
                                 if updates:
                                     incid.update({f'Updated_{k}': v for k, v in updates.items()})
                                 incidences.append(incid)
-                            # else: policy has letters; skip all updates
+                                # Record diag for numeric applied
+                                diag_rows.append({
+                                    'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
+                                    'Numero_Prestamo_JOIN_KEY': str(key),
+                                    'num_poliza': sval,
+                                    'applied': True,
+                                    'reason': 'NUMERIC_POLICY'
+                                })
+                            else:
+                                # policy has letters; skip all updates
+                                diag_rows.append({
+                                    'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
+                                    'Numero_Prestamo_JOIN_KEY': str(key),
+                                    'num_poliza': sval,
+                                    'applied': False,
+                                    'reason': 'NON_NUMERIC_POLICY'
+                                })
+                        else:
+                            # no policy found for normalized key
+                            diag_rows.append({
+                                'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
+                                'Numero_Prestamo_JOIN_KEY': str(key),
+                                'num_poliza': '',
+                                'applied': False,
+                                'reason': 'NOT_FOUND'
+                            })
 
         if incidences:
             self._store_incidences('AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', incidences, context)
@@ -3050,6 +3077,18 @@ class AT12TransformationEngine(TransformationEngine):
                     original_columns['Fecha_Vencimiento'] = orig_venc
                 original_columns = original_columns or None
                 self._export_error_subset(df, mask, 'BASE_AT12', 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', context, None, original_columns=original_columns)
+            except Exception:
+                pass
+            # Export join diagnostics for non-applied or applied cases to help detect normalization issues
+            try:
+                if 'diag_rows' in locals() and diag_rows:
+                    diag_df = pd.DataFrame(diag_rows)
+                    # Keep only problematic cases to reduce noise
+                    diag_out = diag_df[diag_df['applied'] == False].copy()
+                    if not diag_out.empty:
+                        diag_path = context.paths.incidencias_dir / f"AUTO_POLICY_JOIN_DIAG_{context.period}.csv"
+                        diag_out.to_csv(diag_path, index=False, encoding='utf-8', sep=getattr(context.config, 'output_delimiter', '|'), quoting=1)
+                        self.logger.info(f"AUTO_POLICY_JOIN_DIAG -> {diag_path.name} ({len(diag_out)} records)")
             except Exception:
                 pass
         else:
