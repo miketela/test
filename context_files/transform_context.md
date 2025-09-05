@@ -130,10 +130,16 @@ This initial stage focuses on correcting structural and format errors in the `BA
 *   **Input Identification:** Records where `Tipo_Garantia` = '0106,0101,0102,0103,0106,0108' AND `Nombre_Organismo` is empty.
 *   **Detailed Process (Logic):** Assign the constant value '700' to the `Nombre_Organismo` field.
 
-**1.9. Error en Póliza de Auto (Error in Auto Policy)**
-*   **Objective:** To populate the missing policy number in auto guarantees.
-*   **Input Identification:** Records where `Tipo_Garantia` = '0101' AND `Id_Documento` is empty.
-*   **Detailed Process (Logic):** `JOIN` con `GARANTIA_AUTOS_AT12` por `Numero_Prestamo = numcred` con llaves normalizadas (solo dígitos, sin ceros a la izquierda). Poblar `Id_Documento` con `num_poliza`.
+**1.9. Auto Policy Error (Rule 9)**
+- Objective: Populate missing policy number and align amounts/dates for auto guarantees.
+- Input Identification: Rows where `Tipo_Garantia` ∈ {'0101','0103'} and `Id_Documento` is empty.
+- Join Keys: Join with `GARANTIA_AUTOS_AT12` on `Numero_Prestamo` = `numcred` using normalized keys (digits only, no leading zeros).
+- Updates (on successful match):
+  - Id_Documento: set to `num_poliza`.
+  - Importe and Valor_Garantia: replace with the policy amount (if available).
+  - Fecha_Última_Actualización: replace with policy `Fecha_inicio`.
+  - Fecha_Vencimiento: replace with policy `Fecha_Vencimiento`.
+- Constraint: If `num_poliza` contains any non-digit characters (letters/text), do not update any fields; keep the original record as-is.
 
 **1.10. Inmueble sin Avaluadora (Property without Appraiser)**
 *   **Objective:** To assign an organization code to properties that are missing it.

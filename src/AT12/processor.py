@@ -925,7 +925,29 @@ class AT12Processor:
                     self.logger.info("Output files generated:")
                     for output_file in result.processed_files:
                         self.logger.info(f"  📄 {Path(output_file).name}")
-                        
+                
+                # Post-run validation suite on transformed outputs only
+                try:
+                    from .validators import AT12Validator
+                    validator = AT12Validator(config=config_obj, year=year, month=month, run_id=run_id)
+                    # 1) CSV width alignment on processed outputs
+                    processed_paths = [Path(p) for p in result.processed_files]
+                    csv_rule = validator.validate_csv_alignment(processed_paths)
+                    # 2) Dates not after period end on processed outputs
+                    date_rule = validator.validate_dates_not_after_period_end(processed_paths)
+                    # 3) Rule 9 (Auto policy) validation uses processed BASE + GARANTIA_AUTOS input
+                    auto_rule = validator.validate_auto_policy_rule9(processed_paths, input_files)
+                    summary_path = validator.write_summary([csv_rule, date_rule, auto_rule])
+                    overall = 'PASS'
+                    try:
+                        import json as _json
+                        overall = _json.loads(summary_path.read_text(encoding='utf-8')).get('status', overall)
+                    except Exception:
+                        pass
+                    self.logger.info(f"Validation summary -> {summary_path.name} (status={overall})")
+                except Exception as ve:
+                    self.logger.warning(f"Post-run validation skipped due to error: {ve}")
+                
                 return ProcessingResult(
                     success=True,
                     message=f"Transformation completed successfully. Processed {result.total_files_processed} files.",
