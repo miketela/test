@@ -131,11 +131,11 @@ This initial stage focuses on correcting structural and format errors in the `BA
 *   **Detailed Process (Logic):** Assign the constant value '700' to the `Nombre_Organismo` field.
 
 **1.9. Auto Policy Error (Rule 9)**
-- Objective: Populate missing policy number and align amounts/dates for auto guarantees.
-- Input Identification: Rows where `Tipo_Garantia` ∈ {'0101','0103'} and `Id_Documento` is empty.
+- Objective: Populate/overwrite policy fields for auto guarantees using GARANTIA_AUTOS as source of truth.
+- Input Identification: Rows where `Tipo_Garantia` ∈ {'0101','0103'} (regardless of `Id_Documento` being empty or not).
 - Join Keys: Join with `GARANTIA_AUTOS_AT12` on `Numero_Prestamo` = `numcred` using normalized keys (digits only, no leading zeros). Output preserves the original formatting of `Numero_Prestamo` (no reformatting is applied).
 - Updates (on successful match):
-  - Id_Documento: set to `num_poliza`.
+  - Id_Documento: overwrite with `num_poliza` (always, even if it had a prior value).
   - Importe and Valor_Garantia: replace with the policy amount (if available).
   - Fecha_Última_Actualización: replace with policy `Fecha_inicio`.
   - Fecha_Vencimiento: replace with policy `Fecha_Vencimiento`.

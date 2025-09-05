@@ -2915,9 +2915,8 @@ class AT12TransformationEngine(TransformationEngine):
 
         df = df.copy()
         tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
-        idoc = df['Id_Documento']
-        is_empty_idoc = self._is_empty_like(idoc)
-        mask = (tg_norm.isin({'0101', '0103'})) & is_empty_idoc
+        # Apply to all 0101/0103 regardless of current Id_Documento value
+        mask = (tg_norm.isin({'0101', '0103'}))
 
         incidences = []
         try:
