@@ -3019,7 +3019,9 @@ class AT12TransformationEngine(TransformationEngine):
                                 incid = {
                                     'Index': int(idx),
                                     'Tipo_Garantia': str(df.loc[idx, 'Tipo_Garantia']),
-                                    'Numero_Prestamo': str(key),
+                                    # preserve original Numero_Prestamo; include join key for traceability
+                                    'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
+                                    'Numero_Prestamo_JOIN_KEY': str(key),
                                     'Original_Id_Documento': original,
                                     'Corrected_Id_Documento': sval,
                                     'Rule': 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS'

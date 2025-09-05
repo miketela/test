@@ -134,6 +134,7 @@ This initial stage focuses on correcting structural and format errors in the `BA
 - Objective: Populate missing policy number and align amounts/dates for auto guarantees.
 - Input Identification: Rows where `Tipo_Garantia` ∈ {'0101','0103'} and `Id_Documento` is empty.
 - Join Keys: Join with `GARANTIA_AUTOS_AT12` on `Numero_Prestamo` = `numcred` using normalized keys (digits only, no leading zeros).
+- Join Keys: Join with `GARANTIA_AUTOS_AT12` on `Numero_Prestamo` = `numcred` using normalized keys (digits only, no leading zeros). Output preserves the original formatting of `Numero_Prestamo` (no reformatting is applied).
 - Updates (on successful match):
   - Id_Documento: set to `num_poliza`.
   - Importe and Valor_Garantia: replace with the policy amount (if available).
