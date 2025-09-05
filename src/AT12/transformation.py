@@ -238,6 +238,23 @@ class AT12TransformationEngine(TransformationEngine):
                     pass
         return df
 
+    def _zero_out_valor_ponderado(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Set any Valor_Ponderado/valor_ponderado column to literal '0' (string).
+
+        Applies case-insensitively, and does not create columns if absent.
+        """
+        if df is None or df.empty:
+            return df
+        df = df.copy()
+        import re as _re
+        for col in list(df.columns):
+            try:
+                if _re.fullmatch(r"(?i)valor_ponderado", str(col).strip(), flags=_re.IGNORECASE):
+                    df[col] = '0'
+            except Exception:
+                continue
+        return df
+
     def _export_error_subset(self, df: pd.DataFrame, mask: pd.Series, subtype: str, rule_name: str,
                               context: TransformationContext, result: Optional[TransformationResult],
                               original_columns: Optional[Dict[str, pd.Series]] = None) -> None:
@@ -1971,6 +1988,11 @@ class AT12TransformationEngine(TransformationEngine):
                         df = _HM.standardize_dataframe_to_schema(df, subtype, expected)
                 except Exception:
                     pass
+                # Zero out Valor_Ponderado across all outputs
+                try:
+                    df = self._zero_out_valor_ponderado(df)
+                except Exception:
+                    pass
                 # Enforce dot decimals in processed CSV outputs
                 try:
                     df = self._enforce_dot_decimal(df)
@@ -2039,6 +2061,11 @@ class AT12TransformationEngine(TransformationEngine):
                                 if hasattr(result, 'errors'):
                                     result.errors.append(msg)
                                 continue
+                    except Exception:
+                        pass
+                    # Zero out Valor_Ponderado across all TXT outputs
+                    try:
+                        out_df = self._zero_out_valor_ponderado(out_df)
                     except Exception:
                         pass
                     # Ensure dot decimal in money fields for all TXT outputs
