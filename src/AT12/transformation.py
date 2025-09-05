@@ -431,6 +431,7 @@ class AT12TransformationEngine(TransformationEngine):
         df = self._apply_fecha_cancelacion_correction(df, context)
         df = self._apply_inmuebles_sin_finca_correction(df, context)
         df = self._apply_poliza_auto_comercial_correction(df, context)
+        df = self._apply_fiduciaria_extranjera_standardization(df, context, subtype=subtype)
         df = self._apply_inmueble_sin_avaluadora_correction(df, context)
         
         self.logger.info("Completed Phase 1a: Independent operations")
@@ -3102,4 +3103,95 @@ class AT12TransformationEngine(TransformationEngine):
                 self.logger.info("INMUEBLE_SIN_AVALUADORA_ORG_CODE: no empty Nombre_Organismo for 0207/0208/0209")
             except Exception:
                 pass
+        return df
+
+    def _apply_fiduciaria_extranjera_standardization(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "") -> pd.DataFrame:
+        """1.11. Estandarización de Fiduciaria Extranjera (FDE) en AT12_BASE.
+
+        Condición: `Nombre_Fiduciaria` contiene 'FDE'.
+        Acciones: `Codigo_Origen`/`Origen` = 'E'; `Codigo_Region`/`Cod_region` = '320'.
+        Exporta incidencias a FDE_NOMBRE_FIDUCIARIO_<YYYYMMDD>.csv con columnas originales adyacentes.
+        """
+        if df is None or df.empty:
+            return df
+        # Solo para BASE
+        if subtype and str(subtype).upper() not in {"BASE_AT12", "BASE", "AT12_BASE"}:
+            return df
+
+        cols = set(df.columns)
+        if 'Nombre_Fiduciaria' not in cols:
+            return df
+
+        df = df.copy()
+        selector = df['Nombre_Fiduciaria'].astype(str)
+        mask = selector.str.contains('FDE', case=False, na=False)
+        if not mask.any():
+            try:
+                self.logger.info("FDE_NOMBRE_FIDUCIARIO: no candidates found")
+            except Exception:
+                pass
+            return df
+
+        # Determine target columns
+        origen_target = 'Codigo_Origen' if 'Codigo_Origen' in cols else ('Origen' if 'Origen' in cols else None)
+        region_target = 'Codigo_Region' if 'Codigo_Region' in cols else ('Cod_region' if 'Cod_region' in cols else None)
+        # Keep originals for export
+        orig_map = {}
+        if origen_target:
+            try:
+                orig_map[origen_target] = df[origen_target].copy()
+            except Exception:
+                pass
+        if region_target:
+            try:
+                orig_map[region_target] = df[region_target].copy()
+            except Exception:
+                pass
+
+        # Apply updates
+        if origen_target:
+            df.loc[mask, origen_target] = 'E'
+        if region_target:
+            df.loc[mask, region_target] = '320'
+
+        # Export affected rows with ORIGINAL columns adjacent
+        try:
+            out_df = df.loc[mask].copy()
+            if out_df.empty:
+                return df
+            # Insert _ORIGINAL columns next to targets
+            if orig_map:
+                cols_list = list(out_df.columns)
+                new_order = []
+                for c in cols_list:
+                    new_order.append(c)
+                    if c in orig_map:
+                        oc = f"{c}_ORIGINAL"
+                        try:
+                            out_df[oc] = orig_map[c].reindex(out_df.index)
+                        except Exception:
+                            out_df[oc] = orig_map[c]
+                        new_order.append(oc)
+                try:
+                    out_df = out_df[new_order]
+                except Exception:
+                    pass
+            # File path (custom name, no subtype in filename)
+            fname = f"FDE_NOMBRE_FIDUCIARIO_{context.period}.csv"
+            fpath = context.paths.incidencias_dir / fname
+            fpath.parent.mkdir(parents=True, exist_ok=True)
+            out_df.to_csv(
+                fpath,
+                index=False,
+                encoding='utf-8',
+                sep=getattr(context.config, 'output_delimiter', '|'),
+                quoting=1,
+                date_format='%Y%m%d'
+            )
+            try:
+                self.logger.info(f"FDE_NOMBRE_FIDUCIARIO -> {fpath.name} ({len(out_df)} records)")
+            except Exception:
+                pass
+        except Exception as e:
+            self.logger.warning(f"Failed exporting FDE_NOMBRE_FIDUCIARIO: {e}")
         return df

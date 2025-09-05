@@ -348,3 +348,70 @@ class AT12Validator:
         out = Path(self.config.metrics_dir) / f"validation_AT12_{self.year:04d}{self.month:02d}__run-{self.run_id}.json"
         out.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
         return out
+
+    # ---------------- FDE Rule: Foreign Trustee Standardization ----------------
+    def validate_fde_rule(self, processed_files: List[Path]) -> RuleResult:
+        """Validate that rows with Nombre_Fiduciaria containing 'FDE' have Origen='E' and Region='320'."""
+        # Find processed BASE
+        base_fp: Optional[Path] = None
+        for fp in processed_files:
+            name = Path(fp).name.upper()
+            if 'BASE_AT12' in name:
+                base_fp = Path(fp)
+                break
+        if base_fp is None or not base_fp.exists():
+            return RuleResult(
+                name="FDE_RULE",
+                status="WARN",
+                details={"reason": "Processed BASE_AT12 file not found"}
+            )
+
+        try:
+            base = self.ufr.read_file(base_fp)
+        except Exception as e:
+            return RuleResult(name="FDE_RULE", status="WARN", details={"reason": f"Failed to read BASE: {e}"})
+
+        if 'Nombre_Fiduciaria' not in base.columns:
+            return RuleResult(name="FDE_RULE", status="WARN", details={"reason": "Nombre_Fiduciaria missing"})
+
+        # Resolve target columns
+        origen_col = 'Codigo_Origen' if 'Codigo_Origen' in base.columns else ('Origen' if 'Origen' in base.columns else None)
+        region_col = 'Codigo_Region' if 'Codigo_Region' in base.columns else ('Cod_region' if 'Cod_region' in base.columns else None)
+        if origen_col is None and region_col is None:
+            return RuleResult(name="FDE_RULE", status="WARN", details={"reason": "No Origen/Region columns present"})
+
+        b = base.copy()
+        mask = b['Nombre_Fiduciaria'].astype(str).str.contains('FDE', case=False, na=False)
+        if not mask.any():
+            return RuleResult(name="FDE_RULE", status="PASS", details={"candidates": 0})
+
+        violations: List[Dict[str, Any]] = []
+        for idx in b.index[mask]:
+            ok = True
+            if origen_col is not None:
+                if str(b.at[idx, origen_col]).strip() != 'E':
+                    ok = False
+            if region_col is not None:
+                if str(b.at[idx, region_col]).strip() != '320':
+                    ok = False
+            if not ok:
+                violations.append({
+                    'file': base_fp.name,
+                    'row': int(idx) + 2,
+                    'Nombre_Fiduciaria': str(b.at[idx, 'Nombre_Fiduciaria']).strip(),
+                    'Origen_value': (str(b.at[idx, origen_col]).strip() if origen_col else None),
+                    'Region_value': (str(b.at[idx, region_col]).strip() if region_col else None)
+                })
+
+        # Export violations
+        incid = None
+        if violations:
+            dfv = pd.DataFrame(violations)
+            incid = self.paths.incidencias_dir / f"EEOO_TABULAR_FDE_RULE_AT12_{self.year:04d}{self.month:02d}01.csv"
+            dfv.to_csv(incid, index=False, encoding='utf-8', sep='|', quoting=1)
+
+        status = "PASS" if not violations else "FAIL"
+        return RuleResult(name="FDE_RULE", status=status, details={
+            "violations": len(violations),
+            "incidence_file": incid.name if incid else None
+        })

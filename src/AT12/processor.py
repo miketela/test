@@ -937,7 +937,9 @@ class AT12Processor:
                     date_rule = validator.validate_dates_not_after_period_end(processed_paths)
                     # 3) Rule 9 (Auto policy) validation uses processed BASE + GARANTIA_AUTOS input
                     auto_rule = validator.validate_auto_policy_rule9(processed_paths, input_files)
-                    summary_path = validator.write_summary([csv_rule, date_rule, auto_rule])
+                    # 4) FDE foreign trustee standardization
+                    fde_rule = validator.validate_fde_rule(processed_paths)
+                    summary_path = validator.write_summary([csv_rule, date_rule, auto_rule, fde_rule])
                     overall = 'PASS'
                     try:
                         import json as _json
