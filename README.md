@@ -160,17 +160,20 @@ Run the interactive terminal UI to explore, transform, and report with guided pr
 pip install InquirerPy
 
 # Launch the UI
-python main.py tui
+    python main.py tui
 ```
 
 Features:
 - Explore: selecciona subtipos y archivos de `source/`, elige año/mes y ejecuta explore (usa una carpeta temporal como SOURCE_DIR).
+  - Ahora incluye un submenú con opciones: “Seleccionar archivos”, “Refrescar listado” y “Volver al menú principal”.
+  - El listado de archivos respeta `SBP_SOURCE_DIR` si está definido, y se refresca al volver a entrar o elegir “Refrescar listado”.
 - Transform: selecciona subtipos y archivos de `data/raw` para un run y ejecuta transform (usa una carpeta temporal como RAW_DIR).
 - Report: elige un JSON en `metrics/` y genera un PDF en `reports/`.
 - XLSX: puedes indicar la hoja (nombre o índice 0‑based) para el conteo en resúmenes.
 
 Notas:
 - Si InquirerPy no está instalado, la UI hace fallback a prompts básicos; con InquirerPy verás checkboxes y selects interactivos.
+  - Tanto la versión básica como la interactiva incluyen “Volver al menú principal” en el flujo de Explore.
 
 #### Detailed Report Usage Guide
 

@@ -20,8 +20,15 @@ from collections import Counter
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SOURCE_DIR = PROJECT_ROOT / "source"
-RAW_DIR = PROJECT_ROOT / "data" / "raw"
+# Note: resolve SOURCE/RAW dirs dynamically to respect env overrides
+# (e.g., SBP_SOURCE_DIR and SBP_DATA_RAW_DIR) and to reflect changes at runtime.
+def get_source_dir() -> Path:
+    p = os.getenv("SBP_SOURCE_DIR")
+    return Path(p) if p else (PROJECT_ROOT / "source")
+
+def get_raw_data_dir() -> Path:
+    p = os.getenv("SBP_DATA_RAW_DIR")
+    return Path(p) if p else (PROJECT_ROOT / "data" / "raw")
 TMP_SOURCE_DIR = PROJECT_ROOT / ".tmp_source_run"
 TMP_RAW_DIR = PROJECT_ROOT / ".tmp_raw_run"
 METRICS_DIR = PROJECT_ROOT / "metrics"
@@ -110,10 +117,11 @@ def prompt_int(message: str, default: Optional[int] = None) -> int:
 
 
 def list_source_files() -> List[Path]:
-    if not SOURCE_DIR.exists():
+    src_dir = get_source_dir()
+    if not src_dir.exists():
         return []
     files = []
-    for p in sorted(SOURCE_DIR.iterdir()):
+    for p in sorted(src_dir.iterdir()):
         if p.is_file() and p.suffix.lower() in {".csv", ".xlsx", ".txt"}:
             files.append(p)
     return files
@@ -173,7 +181,8 @@ def pick_files(files: List[Path]) -> List[Path]:
 
 def list_raw_run_files(year: int, month: int) -> List[Path]:
     files: List[Path] = []
-    if not RAW_DIR.exists():
+    raw_dir = get_raw_data_dir()
+    if not raw_dir.exists():
         return files
     patt_csv = f"*__run-{year}{month:02d}.csv"
     patt_CSV = f"*__run-{year}{month:02d}.CSV"
@@ -182,10 +191,10 @@ def list_raw_run_files(year: int, month: int) -> List[Path]:
     # On Windows (case-insensitive FS), the same file can match both patterns.
     # Collect and then deduplicate by resolved path while preserving order.
     candidates: List[Path] = []
-    candidates.extend(sorted(RAW_DIR.glob(patt_csv)))
-    candidates.extend(sorted(RAW_DIR.glob(patt_CSV)))
-    candidates.extend(sorted(RAW_DIR.glob(patt_txt)))
-    candidates.extend(sorted(RAW_DIR.glob(patt_TXT)))
+    candidates.extend(sorted(raw_dir.glob(patt_csv)))
+    candidates.extend(sorted(raw_dir.glob(patt_CSV)))
+    candidates.extend(sorted(raw_dir.glob(patt_txt)))
+    candidates.extend(sorted(raw_dir.glob(patt_TXT)))
     seen = set()
     for p in candidates:
         try:
@@ -200,13 +209,14 @@ def list_raw_run_files(year: int, month: int) -> List[Path]:
 def list_all_raw_files() -> List[Path]:
     """List all raw files across all runs, deduplicated by real path."""
     files: List[Path] = []
-    if not RAW_DIR.exists():
+    raw_dir = get_raw_data_dir()
+    if not raw_dir.exists():
         return files
     candidates: List[Path] = []
-    candidates.extend(sorted(RAW_DIR.glob("*__run-*.csv")))
-    candidates.extend(sorted(RAW_DIR.glob("*__run-*.CSV")))
-    candidates.extend(sorted(RAW_DIR.glob("*__run-*.txt")))
-    candidates.extend(sorted(RAW_DIR.glob("*__run-*.TXT")))
+    candidates.extend(sorted(raw_dir.glob("*__run-*.csv")))
+    candidates.extend(sorted(raw_dir.glob("*__run-*.CSV")))
+    candidates.extend(sorted(raw_dir.glob("*__run-*.txt")))
+    candidates.extend(sorted(raw_dir.glob("*__run-*.TXT")))
     seen = set()
     for p in candidates:
         try:
@@ -220,10 +230,11 @@ def list_all_raw_files() -> List[Path]:
 
 def find_latest_run_in_raw() -> Optional[Tuple[int, int]]:
     """Scan data/raw and return the latest (year, month) found in __run-YYYYMM files."""
-    if not RAW_DIR.exists():
+    raw_dir = get_raw_data_dir()
+    if not raw_dir.exists():
         return None
     runs: List[Tuple[int, int]] = []
-    for p in RAW_DIR.glob("*__run-*.csv"):
+    for p in raw_dir.glob("*__run-*.csv"):
         m = re.search(r"__run-(\d{6})", p.name)
         if m:
             yyyymm = m.group(1)
@@ -534,9 +545,10 @@ def _find_and_add_dependencies(chosen: List[Path], year: int, month: int) -> Lis
     }
     
     # Add missing dependencies
+    raw_dir = get_raw_data_dir()
     for subtype, filename in dependencies.items():
         if subtype not in chosen_subtypes:
-            dep_path = RAW_DIR / filename
+            dep_path = raw_dir / filename
             if dep_path.exists():
                 print(f"Found and added required dependency: {filename}")
                 chosen_with_deps.append(dep_path)
@@ -704,7 +716,7 @@ def _collect_output_files() -> List[Path]:
     if mdir.exists():
         targets.extend(sorted(mdir.glob("*.json")))
     # RAW files generated for runs (only __run-* to avoid deleting sources)
-    raw_dir = PROJECT_ROOT / "data" / "raw"
+    raw_dir = get_raw_data_dir()
     if raw_dir.exists():
         for patt in ["*__run-*.csv", "*__run-*.CSV", "*__run-*.txt", "*__run-*.TXT"]:
             targets.extend(sorted(raw_dir.glob(patt)))
@@ -737,6 +749,45 @@ def action_clean():
     print(f"Removed {removed} file(s).")
 
 
+def _explore_menu_loop():
+    """Explore submenu with Refresh and Back options."""
+    while True:
+        src_dir = get_source_dir()
+        files = list_source_files()
+        info = f"{len(files)} file(s) in {src_dir}"
+        options = [
+            f"Seleccionar archivos / Pick files ({info})",
+            "Refrescar listado / Refresh",
+            "Volver al menú principal / Back",
+        ]
+        if HAS_INQUIRER:
+            choice = prompt_select("Explore Menu", options, default=options[0])
+        else:
+            idx = print_menu("Explore Menu", options)
+            choice = options[idx - 1]
+
+        if choice.startswith("Seleccionar") or choice.startswith("Pick"):
+            if not files:
+                print("No files in source/.")
+                continue
+            wanted = prompt_subtype_filter(files)
+            list_for_pick = [p for p in files if not wanted or infer_subtype(p.name) in wanted]
+            if not list_for_pick:
+                print("No files after applying subtype filter.")
+                continue
+            selected = pick_files(list_for_pick)
+            if selected:
+                action_explore(selected)
+            # After running explore, stay in submenu to allow another run or refresh
+            continue
+        elif choice.startswith("Refrescar") or choice.startswith("Refresh"):
+            # Loop continues and re-reads directory
+            continue
+        else:
+            # Back
+            break
+
+
 def main():
     print("AT12 Terminal Interface")
     if not HAS_INQUIRER:
@@ -756,15 +807,7 @@ def main():
             selection = menu_items[idx - 1]
 
         if selection.startswith("Explore"):
-            files = list_source_files()
-            if not files:
-                print("No files in source/.")
-                continue
-            wanted = prompt_subtype_filter(files)
-            list_for_pick = [p for p in files if not wanted or infer_subtype(p.name) in wanted]
-            selected = pick_files(list_for_pick)
-            if selected:
-                action_explore(selected)
+            _explore_menu_loop()
         elif selection.startswith("Transform"):
             action_transform()
         elif selection.startswith("Report"):
