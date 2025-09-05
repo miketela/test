@@ -140,6 +140,7 @@ This initial stage focuses on correcting structural and format errors in the `BA
   - Fecha_Última_Actualización: replace with policy `Fecha_inicio`.
   - Fecha_Vencimiento: replace with policy `Fecha_Vencimiento`.
 - Constraint: Accept any non-empty `num_poliza` (may include dashes/letters/symbols). If `num_poliza` is empty, do not update.
+ - Exclusions: If `monto_asegurado` in `GARANTIA_AUTOS_AT12` equals any of {"Nuevo Desembolso", "PERDIDA TOTAL", "FALLECIDO"} (case-insensitive), skip all updates for that match and keep original values in `AT12_BASE` (including `Id_Documento`, dates, and amounts).
 
 **1.10. Inmueble sin Avaluadora (Property without Appraiser)**
 *   **Objective:** To assign an organization code to properties that are missing it.

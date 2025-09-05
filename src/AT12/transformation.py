@@ -2987,6 +2987,14 @@ class AT12TransformationEngine(TransformationEngine):
                             break
                     map_start = autos_df.set_index('_norm_key')[start_col] if start_col else None
                     map_end = autos_df.set_index('_norm_key')[end_col] if end_col else None
+                    # Exclusion tokens based on monto_asegurado textual values
+                    exclusion_col = None
+                    for c in ['monto_asegurado', 'Monto_Asegurado', 'MONTO_ASEGURADO']:
+                        if c in autos_df.columns:
+                            exclusion_col = c
+                            break
+                    map_excl = autos_df.set_index('_norm_key')[exclusion_col] if exclusion_col else None
+                    excl_tokens = { 'NUEVO DESEMBOLSO', 'PERDIDA TOTAL', 'FALLECIDO' }
 
                     base_norm = self._normalize_join_key(df['Numero_Prestamo'])
                     # Prepare originals for export side-by-side
@@ -3010,6 +3018,23 @@ class AT12TransformationEngine(TransformationEngine):
                         if pd.notna(val):
                             matched += 1
                             sval = str(val).strip()
+                            # If exclusion token present in monto_asegurado, skip all updates and keep originals
+                            try:
+                                if map_excl is not None:
+                                    exv = map_excl.get(key, None)
+                                    if exv is not None:
+                                        exu = str(exv).strip().upper()
+                                        if exu in excl_tokens:
+                                            diag_rows.append({
+                                                'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
+                                                'Numero_Prestamo_JOIN_KEY': str(key),
+                                                'num_poliza': sval,
+                                                'applied': False,
+                                                'reason': f'EXCLUSION_TOKEN:{exu}'
+                                            })
+                                            continue
+                            except Exception:
+                                pass
                             # Accept any non-empty policy value (may include letters/symbols)
                             if sval != '':
                                 original = df.loc[idx, 'Id_Documento']
