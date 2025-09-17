@@ -449,7 +449,11 @@ class AT12TransformationEngine(TransformationEngine):
         df = self._apply_inmuebles_sin_finca_correction(df, context)
         df = self._apply_poliza_auto_comercial_correction(df, context)
         df = self._apply_fiduciaria_extranjera_standardization(df, context, subtype=subtype)
+        df = self._apply_codigo_fiduciaria_update(df, context, subtype=subtype)
+        df = self._apply_contrato_privado_na(df, context, subtype=subtype)
         df = self._apply_inmueble_sin_avaluadora_correction(df, context)
+        # Final rule in cascade for Stage 1a: pad Id_Documento to 10 when purely numeric and short
+        df = self._apply_id_documento_padding(df, context, subtype=subtype)
         
         self.logger.info("Completed Phase 1a: Independent operations")
         return df
@@ -623,7 +627,11 @@ class AT12TransformationEngine(TransformationEngine):
         df = self._apply_inmuebles_sin_finca_correction(df, context)
         df = self._apply_poliza_auto_comercial_correction(df, context)
         df = self._apply_error_poliza_auto_correction(df, context, source_data)
+        df = self._apply_codigo_fiduciaria_update(df, context, subtype=subtype)
+        df = self._apply_contrato_privado_na(df, context, subtype=subtype)
         df = self._apply_inmueble_sin_avaluadora_correction(df, context)
+        # Final rule in cascade for legacy Phase 1: pad Id_Documento to 10 when purely numeric and short
+        df = self._apply_id_documento_padding(df, context, subtype=subtype)
         
         self.logger.info("Completed Phase 1: Error correction")
         return df
@@ -835,6 +843,11 @@ class AT12TransformationEngine(TransformationEngine):
                                     has_at02: bool = False, has_at03: bool = False) -> pd.DataFrame:
         """Process Sobregiro specific data with dependency gating."""
         self.logger.info("Processing SOBREGIRO_AT12 data - Stage 2 (gated)")
+        # Ensure whitespace cleaning runs first for SOBREGIRO
+        try:
+            df = self._apply_eeor_tabular_cleaning(df, context, subtype='SOBREGIRO_AT12')
+        except Exception as e:
+            self.logger.warning(f"EEOR_TABULAR cleaning skipped for SOBREGIRO due to error: {e}")
         
         # Step 0: Ensure Tipo_Facilidad from AT03 (only if AT03 available)
         if has_at03:
@@ -877,6 +890,11 @@ class AT12TransformationEngine(TransformationEngine):
                               result: TransformationResult, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """Process Sobregiro specific data according to Stage 2 specifications (legacy method for compatibility)."""
         self.logger.info("Processing SOBREGIRO_AT12 data - Stage 2")
+        # Ensure whitespace cleaning runs first for SOBREGIRO
+        try:
+            df = self._apply_eeor_tabular_cleaning(df, context, subtype='SOBREGIRO_AT12')
+        except Exception as e:
+            self.logger.warning(f"EEOR_TABULAR cleaning skipped for SOBREGIRO due to error: {e}")
         
         # Step 0: Ensure Tipo_Facilidad from AT03 (must run before any other step)
         try:
@@ -1110,30 +1128,21 @@ class AT12TransformationEngine(TransformationEngine):
         for idx, row in df.iterrows():
             # Use tuple key to avoid collisions from string concatenation
             unique_key = (str(row.get('Id_Documento', '')), str(row.get('Tipo_Facilidad', '')))
-            current_val = row.get(target_col)
-            # Helper to pad numeric strings to 10 digits
-            def _pad10(val: str) -> str:
-                s = str(val).strip()
-                return s.zfill(10) if s.isdigit() else s
-            if pd.notna(current_val) and str(current_val).strip() != '':
-                # Preserve provided value; enforce 10-digit padding only if numeric
-                df.at[idx, target_col] = _pad10(current_val)
+            # Assign by key using sequential registry (overwrite any existing value); no padding
+            if unique_key not in unique_keys:
+                unique_keys[unique_key] = next_number
+                assigned = str(next_number)
+                next_number += 1
             else:
-                # Assign by key using sequential registry
-                if unique_key not in unique_keys:
-                    unique_keys[unique_key] = next_number
-                    assigned = str(next_number)
-                    next_number += 1
-                else:
-                    assigned = str(unique_keys[unique_key])
-                df.at[idx, target_col] = _pad10(assigned)
-                incidences.append({
-                    'Index': idx,
-                    'Id_Documento': row.get('Id_Documento', ''),
-                    'Numero_Prestamo': row.get('Numero_Prestamo', ''),
-                    'Tipo_Facilidad': row.get('Tipo_Facilidad', ''),
-                    'Numero_Garantia_Assigned': df.at[idx, target_col]
-                })
+                assigned = str(unique_keys[unique_key])
+            df.at[idx, target_col] = assigned
+            incidences.append({
+                'Index': idx,
+                'Id_Documento': row.get('Id_Documento', ''),
+                'Numero_Prestamo': row.get('Numero_Prestamo', ''),
+                'Tipo_Facilidad': row.get('Tipo_Facilidad', ''),
+                'Numero_Garantia_Assigned': df.at[idx, target_col]
+            })
 
         # Log only (no incidences for Numero_Garantia generation)
         self.logger.info(f"Generated {len(unique_keys)} unique guarantee numbers for TDC_AT12")
@@ -1260,7 +1269,7 @@ class AT12TransformationEngine(TransformationEngine):
             for col in ['Fecha_inicio_at02', 'Fecha_Vencimiento_at02']:
                 if col in r.columns:
                     try:
-                        r[col + '_dt'] = _pd.to_datetime(r[col], errors='coerce')
+                        r[col + '_dt'] = _pd.to_datetime(r[col], errors='coerce', dayfirst=True)
                     except Exception:
                         r[col + '_dt'] = _pd.NaT
             sort_cols = []
@@ -1395,7 +1404,7 @@ class AT12TransformationEngine(TransformationEngine):
             r = right[['_join_key', 'Fecha_Ultima_Actualizacion_at02', 'Fecha_Vencimiento_at02']].copy()
             for col in ['Fecha_Ultima_Actualizacion_at02', 'Fecha_Vencimiento_at02']:
                 try:
-                    r[col + '_dt'] = _pd.to_datetime(r[col], errors='coerce')
+                    r[col + '_dt'] = _pd.to_datetime(r[col], errors='coerce', dayfirst=True)
                 except Exception:
                     r[col + '_dt'] = _pd.NaT
             sort_cols = [c for c in ['Fecha_Ultima_Actualizacion_at02_dt', 'Fecha_Vencimiento_at02_dt'] if c in r.columns]
@@ -2693,6 +2702,198 @@ class AT12TransformationEngine(TransformationEngine):
             except Exception:
                 pass
         
+        return df
+
+    def _apply_id_documento_padding(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "") -> pd.DataFrame:
+        """1.X. ID_DOCUMENTO_PADDING: Relleno a 10 dígitos solo para BASE.
+
+        Regla:
+        - Si `Id_Documento` es dígitos puros y su longitud es menor a 10, aplicar zfill(10).
+        - Si longitud >= 10, no cambiar.
+        - Si contiene caracteres no numéricos (p.ej., '/'), no cambiar.
+
+        Esta regla debe correr al final de la cascada de Stage 1 para BASE.
+        """
+        if df is None or df.empty:
+            return df
+        # Solo para BASE
+        if subtype and str(subtype).upper() not in {"BASE_AT12", "BASE", "AT12_BASE"}:
+            return df
+        if 'Id_Documento' not in df.columns:
+            return df
+
+        df = df.copy()
+        try:
+            original_series = df['Id_Documento'].astype(str)
+        except Exception:
+            original_series = df['Id_Documento']
+
+        token = original_series.astype(str).str.strip()
+        mask_digit = token.str.fullmatch(r'\d+')
+        mask_short = token.str.len() < 10
+        mask = mask_digit & mask_short
+
+        if mask.any():
+            # Apply padding
+            df.loc[mask, 'Id_Documento'] = token.loc[mask].str.zfill(10)
+            # Export incidences with original values adjacent
+            try:
+                original_columns = {'Id_Documento': original_series}
+                self._export_error_subset(
+                    df,
+                    mask,
+                    'BASE_AT12',
+                    'ID_DOCUMENTO_PADDING',
+                    context,
+                    None,
+                    original_columns=original_columns
+                )
+            except Exception:
+                pass
+            try:
+                self.logger.info(f"ID_DOCUMENTO_PADDING: applied to {int(mask.sum())} record(s)")
+            except Exception:
+                pass
+        else:
+            try:
+                self.logger.info("ID_DOCUMENTO_PADDING: no candidates found")
+            except Exception:
+                pass
+
+        return df
+
+    def _exclude_sobregiros_from_base(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """3.1. Excluir sobregiros del BASE por cruce con AT03 y Tipo_Facilidad='02'.
+
+        Regla:
+        - JOIN por `Numero_Prestamo` (normalizado dígitos-solo sin ceros a la izquierda) vs `AT03_CREDITOS.num_cta` (normalizado).
+        - Eliminar filas de BASE donde `Tipo_Facilidad` == '02' y el préstamo está presente en AT03.
+        - Exportar subset eliminado a `EXCLUDE_SOBREGIROS_BASE_<YYYYMMDD>.csv`.
+        """
+        if df is None or df.empty:
+            return df
+        if 'Numero_Prestamo' not in df.columns:
+            try:
+                self.logger.info("EXCLUDE_SOBREGIROS_FROM_BASE: Numero_Prestamo not found; skipping")
+            except Exception:
+                pass
+            return df
+        if 'Tipo_Facilidad' not in df.columns:
+            try:
+                self.logger.info("EXCLUDE_SOBREGIROS_FROM_BASE: Tipo_Facilidad not found in BASE; skipping")
+            except Exception:
+                pass
+            return df
+        if 'AT03_CREDITOS' not in source_data or source_data['AT03_CREDITOS'].empty:
+            try:
+                self.logger.info("EXCLUDE_SOBREGIROS_FROM_BASE: AT03_CREDITOS not available; skipping")
+            except Exception:
+                pass
+            return df
+
+        at03 = source_data['AT03_CREDITOS']
+        if 'num_cta' not in at03.columns:
+            try:
+                self.logger.info("EXCLUDE_SOBREGIROS_FROM_BASE: num_cta missing in AT03_CREDITOS; skipping")
+            except Exception:
+                pass
+            return df
+
+        left_keys = self._normalize_join_key(df['Numero_Prestamo'])
+        right_keys = self._normalize_join_key(at03['num_cta'])
+        present_set = set(right_keys.dropna().astype(str))
+        present_mask = left_keys.astype(str).isin(present_set)
+        tipo_mask = df['Tipo_Facilidad'].astype(str).str.strip().eq('02')
+        remove_mask = present_mask & tipo_mask
+
+        count = int(remove_mask.sum()) if hasattr(remove_mask, 'sum') else 0
+        if count:
+            try:
+                self.logger.info(f"EXCLUDE_SOBREGIROS_FROM_BASE: removing {count} record(s) from BASE")
+            except Exception:
+                pass
+            # Export removed subset before filtering
+            try:
+                self._export_error_subset(df, remove_mask, 'BASE_AT12', 'EXCLUDE_SOBREGIROS_BASE', context, None, original_columns=None)
+            except Exception:
+                pass
+            df = df[~remove_mask].copy()
+        else:
+            try:
+                self.logger.info("EXCLUDE_SOBREGIROS_FROM_BASE: no candidates to remove")
+            except Exception:
+                pass
+        return df
+
+    def _apply_codigo_fiduciaria_update(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "") -> pd.DataFrame:
+        """3.3. Reemplazar código de fiduciaria obsoleto 508 -> 528 (solo BASE).
+
+        - Columnas objetivo: 'Codigo_Fiduciaria' si existe.
+        - Exporta incidencias con valor original adyacente.
+        """
+        if df is None or df.empty:
+            return df
+        if subtype and str(subtype).upper() not in {"BASE_AT12", "BASE", "AT12_BASE"}:
+            return df
+        if 'Codigo_Fiduciaria' not in df.columns:
+            return df
+
+        series = df['Codigo_Fiduciaria'].astype(str).str.strip()
+        mask = series.eq('508')
+        if mask.any():
+            try:
+                original_columns = {'Codigo_Fiduciaria': df['Codigo_Fiduciaria'].copy()}
+            except Exception:
+                original_columns = None
+            df.loc[mask, 'Codigo_Fiduciaria'] = '528'
+            try:
+                self._export_error_subset(df, mask, 'BASE_AT12', 'FIDUCIARIA_CODE_UPDATE', context, None, original_columns=original_columns)
+            except Exception:
+                pass
+            try:
+                self.logger.info(f"FIDUCIARIA_CODE_UPDATE: updated {int(mask.sum())} record(s)")
+            except Exception:
+                pass
+        return df
+
+    def _apply_contrato_privado_na(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "") -> pd.DataFrame:
+        """3.5. Setear Nombre_Organismo='NA' para registros 'Contrato Privado' (solo BASE).
+
+        Busca 'Contrato Privado' (case-insensitive) en columnas candidatas y asigna 'NA'.
+        Exporta incidencias con valor original de Nombre_Organismo.
+        """
+        if df is None or df.empty:
+            return df
+        if subtype and str(subtype).upper() not in {"BASE_AT12", "BASE", "AT12_BASE"}:
+            return df
+
+        candidates = [
+            'Tipo_Instrumento', 'Tipo_Poliza', 'Descripción de la Garantía', 'Descripcion de la Garantia', 'Descripcion_de_la_Garantia'
+        ]
+        available = [c for c in candidates if c in df.columns]
+        if not available:
+            return df
+        # Ensure target column exists
+        if 'Nombre_Organismo' not in df.columns:
+            df['Nombre_Organismo'] = ''
+        contains_cp = None
+        for c in available:
+            col_mask = df[c].astype(str).str.contains('Contrato\s+Privado', case=False, na=False, regex=True)
+            contains_cp = col_mask if contains_cp is None else (contains_cp | col_mask)
+        if contains_cp is not None and contains_cp.any():
+            try:
+                original_columns = {'Nombre_Organismo': df['Nombre_Organismo'].copy()}
+            except Exception:
+                original_columns = None
+            df.loc[contains_cp, 'Nombre_Organismo'] = 'NA'
+            try:
+                self._export_error_subset(df, contains_cp, 'BASE_AT12', 'CONTRATO_PRIVADO_NA', context, None, original_columns=original_columns)
+            except Exception:
+                pass
+            try:
+                self.logger.info(f"CONTRATO_PRIVADO_NA: applied to {int(contains_cp.sum())} record(s)")
+            except Exception:
+                pass
         return df
     
     def _apply_inmuebles_sin_poliza_correction(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:

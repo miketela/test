@@ -38,24 +38,25 @@ A single, auditable ETL pipeline for AT12: cleaning → enrichment → business 
     - Incidence: export changed rows only to `FACILIDAD_FROM_AT03_SOBREGIRO_AT12_[YYYYMMDD].csv`, preserving all columns and adding `Tipo_Facilidad_ORIGINAL`.
 
 ### TDC_AT12 (Credit Cards)
-- Numero_Garantia: sequential from 855,500 by key `(Id_Documento, Tipo_Facilidad)`; clear the target column first and sort by `Id_Documento`. Repeats within the same key reuse the number. Repeated `Numero_Prestamo` within the same key is logged only (no incidence).
-- Date mapping: JOIN `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02).
+- Numero_Garantia: sequential from 850,500 by key `(Id_Documento, Tipo_Facilidad)`; always overwrite source values; sort by `Id_Documento`. Repeats within the same key reuse the number. Repeated `Numero_Prestamo` within the same key is logged only (no incidence). No 10-digit padding applied.
+- Date mapping (no day/month inversion): JOIN `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02).
   - Normalize join keys (digits-only, strip leading zeros) on both sides.
-  - Deduplicate AT02 on the normalized key, preferring the most recent dates.
-  - Set `Fecha_Última_Actualización`/`Fecha_Ultima_Actualizacion` from `Fecha_inicio` and `Fecha_Vencimiento` from `Fecha_Vencimiento`. No change when no match.
-- Inconsistency Repeated Card: detect duplicates excluding `Numero_Prestamo` with key priority:
+  - Deduplicate AT02 on the normalized key, preferring the most recent dates; date parsing for ordering assumes day‑first only to resolve ambiguous day/month strings.
+  - Copy date strings as-is from AT02 into `Fecha_Última_Actualización`/`Fecha_Ultima_Actualizacion` and `Fecha_Vencimiento` (no reformatting, no inversion).
+  - Inconsistency Repeated Card: detect duplicates excluding `Numero_Prestamo` with key priority:
   1) (`Identificacion_cliente`, `Identificacion_Cuenta`, `Tipo_Facilidad`), else
   2) (`Id_Documento`, `Tipo_Facilidad`).
   - Normalize key parts to avoid false positives/negatives.
   - Export: `INC_REPEATED_CARD_TDC_AT12_[YYYYMMDD].csv`.
 
 ### SOBREGIRO_AT12
-- Date mapping from AT02_CUENTAS:
+- Pre-clean: run EEOR TABULAR (whitespace trim + collapse multiple spaces) before any Stage 2 step.
+- Date mapping from AT02_CUENTAS (no day/month inversion):
   - Preferred: single-key join `Id_Documento` ↔ `Identificacion_Cuenta` (normalized like TDC). Deduplicate AT02 by normalized key, preferring most recent dates.
   - Fallback: dual-key join (`Identificacion_cliente`, `Identificacion_Cuenta`) when available.
-  - Set `Fecha_Ultima_Actualizacion` from `Fecha_inicio` and `Fecha_Vencimiento` from `Fecha_Vencimiento`, keeping base values when no match.
+  - Copy `Fecha_inicio` to `Fecha_Ultima_Actualizacion` and `Fecha_Vencimiento` to `Fecha_Vencimiento`. AT02 is deduplicated with day‑first parsing for ordering only; copied strings are preserved as-is.
   - Incidence export: `DATE_MAPPING_CHANGES_SOBREGIRO_[YYYYMMDD].csv` with full rows and side-by-side `_ORIGINAL` columns for the updated date fields.
-- Money fields: outputs use dot (`.`) decimals consistently.
+  - Money fields: outputs use dot (`.`) decimals consistently.
 
 ### VALORES_AT12
 - Use reference from BASE_AT12 where `Tipo_Garantia='0507'` to populate fields like `Clave_Pais`, `Clave_Empresa`.
@@ -71,7 +72,7 @@ A single, auditable ETL pipeline for AT12: cleaning → enrichment → business 
 - Join with `AT03_CREDITOS` by `at_num_de_prestamos = num_cta`.
 - If `saldo > nuevo_at_valor_garantia`: report (keep original values). Else: update `at_valor_garantia` and `at_valor_pond_garantia`.
 
-- Stage 5: Final Outputs (Consolidation)
+## Stage 5: Final Outputs (Consolidation)
 - Export headerless TXT:
   - `BASE_AT12` delimited by `|`.
   - `TDC_AT12`, `SOBREGIRO_AT12`, `VALORES_AT12` delimited by a single space.
@@ -97,3 +98,31 @@ Note (Input/RAW normalization): TXT inputs (including Excel “Unicode Text”) 
 - POLIZA_HIPOTECAS_AT12: `saldocapital`, `seguro_incendio` (if monetary).
 - AFECTACIONES_AT12: `at_saldo`.
 - VALOR_MINIMO_AVALUO_AT12: `at_valor_garantia`, `at_valor_pond_garantia`, `valor_garantia`, `nuevo_at_valor_garantia`, `nuevo_at_valor_pond_garantia`, `venta_rapida`, `factor`.
+## New/Updated Rules (2025-09)
+
+- BASE — Exclude Overdrafts (before other dependencies; Stage 1b):
+  - Join `Numero_Prestamo` (BASE) ↔ `AT03_CREDITOS.num_cta` with normalized keys (digits‑only, strip leading zeros for join only).
+  - Remove rows where `Tipo_Facilidad='02'` and the loan is present in AT03.
+  - Incidence: `EXCLUDE_SOBREGIROS_BASE_[YYYYMMDD].csv` with removed rows.
+
+- BASE — Obsolete Fiduciaria Code (Stage 1a):
+  - Rule: replace `Codigo_Fiduciaria=508` with `528`.
+  - Incidence: `FIDUCIARIA_CODE_UPDATE_[YYYYMMDD].csv` with `Codigo_Fiduciaria_ORIGINAL` side-by-side.
+
+- BASE — `Id_Documento` Padding (last Stage 1 rule):
+  - If `Id_Documento` is digits-only and length < 10, apply `zfill(10)`.
+  - If length ≥ 10 or contains non-digits (e.g., “/”), do not change.
+  - Incidence: `ID_DOCUMENTO_PADDING_BASE_AT12_[YYYYMMDD].csv` with `Id_Documento_ORIGINAL`.
+
+- BASE — “Contrato Privado” → `Nombre_Organismo='NA'` (Stage 1a):
+  - Detect “Contrato Privado” (case-insensitive) in candidate columns: `Tipo_Instrumento`, `Tipo_Poliza`, `Descripción de la Garantía` (and unaccented variants).
+  - Set `Nombre_Organismo='NA'` and export `CONTRATO_PRIVADO_NA_[YYYYMMDD].csv` with original value side-by-side.
+
+- TDC — `Numero_Garantia` (Stage 2):
+  - Sequential by key `(Id_Documento, Tipo_Facilidad)` starting at 850,500; always overwrite source; pad to 10 digits if numeric; reuse for repeated keys within the same run.
+
+- TDC/SOBREGIRO — Date Mapping without Inversion (Stage 2):
+  - Date parsing is used only to rank/deduplicate AT02 with day‑first semantics; copied date strings remain as they are in AT02 (no reformatting), preventing day/month inversion.
+
+- SOBREGIRO — Pre‑clean EEOR TABULAR (start of Stage 2):
+  - Apply trim + collapse spaces across all text columns before assigning `Tipo_Facilidad` or mapping dates. Incidences per modified rows under `EEOR_TABULAR_SOBREGIRO_AT12_[YYYYMMDD].csv`.

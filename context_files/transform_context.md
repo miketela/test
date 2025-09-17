@@ -183,15 +183,16 @@ This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facili
 *   **Objective:** Generate unique guarantee numbers and enrich TDC dates; solo “Tarjeta repetida” produce incidencias (además de `FACILIDAD_FROM_AT03` en 2.0).
 *   **Detailed Process (Logic):**
     1.  **`Número_Garantía` (por run):**
-        *   Preparación: limpiar `Número_Garantía` (armoniza variantes como `Numero_Garantia`) y ordenar por `Id_Documento` ascendente.
         *   Llave: (`Id_Documento`, `Tipo_Facilidad`).
-        *   Asignación: secuencia desde 855,500 por run; primera ocurrencia asigna, repetidas reutilizan.
+        *   Asignación: secuencia desde 850,500 por run; primera ocurrencia asigna, repetidas reutilizan.
+        *   Sobrescritura: siempre reemplaza el valor del archivo fuente (no se preserva el original).
+        *   Formato: si es numérico, se presenta con padding a 10 dígitos.
         *   Repetidos por `Numero_Prestamo` dentro de la misma llave: solo log (sin incidencias).
-    2.  **Date Mapping:**
-        *   JOIN `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02).
-        *   Normalización de llaves para el JOIN: dígitos‑solo y sin ceros a la izquierda en ambos lados.
-        *   Deduplicación de AT02 previa al JOIN por llave normalizada, priorizando fechas más recientes.
-        *   `Fecha_Última_Actualización`/`Fecha_Ultima_Actualizacion` ← `Fecha_inicio` (AT02) y `Fecha_Vencimiento` ← `Fecha_Vencimiento` (AT02).
+    2.  **Date Mapping (sin inversión de día/mes):**
+        *   JOIN `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02) con llaves normalizadas (dígitos‑solo, sin ceros a la izquierda).
+        *   Deduplicación de AT02 previa al JOIN por llave normalizada, priorizando las filas con fechas más recientes (se interpretan como día‑primero para resolver ambigüedades en el ordenamiento, p. ej., 08‑05).
+        *   Asignación: `Fecha_Última_Actualización`/`Fecha_Ultima_Actualizacion` ← `Fecha_inicio` (AT02) y `Fecha_Vencimiento` ← `Fecha_Vencimiento` (AT02).
+        *   Formato: se copian las cadenas de fecha de AT02 tal cual; no se re‑formatea ni se invierten día/mes.
         *   Sin match: mantener valores originales.
     3.  **Inconsistencia `Tarjeta_repetida`:**
         *   Detectar duplicados excluyendo `Numero_Prestamo` usando prioridad de clave:
@@ -208,19 +209,23 @@ This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facili
 | 10000 | 012313 | 01 | 855500 |
 | 10000 | 012314 | 02 | 855501 |
 
-2.2. `SOBREGIRO_AT12` (Overdrafts) Processing Objective: To enrich the overdraft data by assigning the correct facility type (Tipo_Facilidad) and updating key dates from the master accounts file. Detailed Process (Logic):
+2.2. `SOBREGIRO_AT12` (Overdrafts) Processing
+Objective: To enrich the overdraft data by assigning the correct facility type (Tipo_Facilidad) and updating key dates from the master accounts file.
+Detailed Process (Logic):
+0. Pre‑clean: aplicar EEOR TABULAR (trim + colapso de espacios) antes de cualquier paso de Stage 2.
 1. `Tipo_Facilidad` Assignment from `SOBREGIRO_AT12` (FIRST):
     * A JOIN is performed between the `SOBREGIRO_AT12` input and the `AT03_CREDITO` file.
     * Keys: `Numero_Prestamo` (from `SOBREGIRO_AT12`) ↔ num_cta (from `AT03_CREDITO`).
     * Rule:
         * If a record from `SOBREGIRO_AT12` finds a match in AT03_CREDITO, its `Tipo_Facilidad` is set to '01'.
         * If no match is found, its `Tipo_Facilidad` is set to '02'.
-2. Date Mapping from AT02_CUENTAS:
+2. Date Mapping from AT02_CUENTAS (sin inversión de día/mes):
     * A JOIN is performed between the SOBREGIRO_AT12 data (post-step 1) and the AT02_CUENTAS master file.
     * Keys: Id_Documento (from SOBREGIRO_AT12) ↔ identificacion_de_cuenta (from AT02_CUENTAS).
     * Mapping Rules:
         * If a match is found, Fecha_Ultima_Actualizacion is overwritten with the value from Fecha_inicio (from AT02_CUENTAS).
         * If a match is found, Fecha_Vencimiento is overwritten with the value from Fecha_Vencimiento (from AT02_CUENTAS).
+        * Dedup de AT02 previo al JOIN prioriza fechas más recientes; el parseo para ordenar asume día‑primero para resolver ambigüedad, pero las cadenas copiadas se conservan tal cual (sin re‑formato).
         * If no match is found, the original date values in the record are kept.
     * Incidence Reporting:
         * Any record whose dates are modified during the "Date Mapping" step is exported to a dedicated incident file.
@@ -336,3 +341,33 @@ Note (Input/RAW normalization): TXT inputs (including Excel “Unicode Text”) 
 - POLIZA_HIPOTECAS_AT12: `saldocapital`, `seguro_incendio` (si aplica como monto).
 - AFECTACIONES_AT12: `at_saldo`.
 - VALOR_MINIMO_AVALUO_AT12: `at_valor_garantia`, `at_valor_pond_garantia`, `valor_garantia`, `nuevo_at_valor_garantia`, `nuevo_at_valor_pond_garantia`, `venta_rapida`, `factor`.
+### New/Updated Rules (2025-09)
+
+These clarifications and rules are incorporated into the unified pipeline and executed in cascade as specified below.
+
+- BASE — Excluir Sobregiros (antes de otras dependencias; Stage 1b):
+  - Join `Numero_Prestamo` (BASE) ↔ `AT03_CREDITOS.num_cta` con llaves normalizadas (dígitos‑solo, sin ceros a la izquierda).
+  - Eliminar filas donde `Tipo_Facilidad='02'` y el préstamo esté presente en AT03.
+  - Incidencias: `EXCLUDE_SOBREGIROS_BASE_<YYYYMMDD>.csv` con las filas eliminadas.
+
+- BASE — Código de Fiduciaria obsoleto (Stage 1a):
+  - Regla: reemplazar `Codigo_Fiduciaria=508` por `528`.
+  - Incidencias: `FIDUCIARIA_CODE_UPDATE_<YYYYMMDD>.csv` con `Codigo_Fiduciaria_ORIGINAL` adyacente.
+
+- BASE — Padding de `Id_Documento` (última regla de Stage 1):
+  - Si `Id_Documento` es dígitos puros y longitud < 10, aplicar `zfill(10)`.
+  - Si longitud ≥ 10 o contiene caracteres no numéricos (p.ej., “/”), no cambiar.
+  - Incidencias: `ID_DOCUMENTO_PADDING_BASE_AT12_<YYYYMMDD>.csv` con `Id_Documento_ORIGINAL`.
+
+- BASE — “Contrato Privado” → `Nombre_Organismo='NA'` (Stage 1a):
+  - Detectar “Contrato Privado” (case-insensitive) en columnas candidatas: `Tipo_Instrumento`, `Tipo_Poliza`, `Descripción de la Garantía` (y variantes sin acentos).
+  - Asignar `Nombre_Organismo='NA'` y exportar `CONTRATO_PRIVADO_NA_<YYYYMMDD>.csv` con valor original adyacente.
+
+- TDC — `Número_Garantía` (Stage 2):
+  - Secuencia por llave (`Id_Documento`,`Tipo_Facilidad`) iniciando en 850,500; siempre sobrescribe el valor del archivo fuente; padding a 10 dígitos si es numérico; reutiliza para llaves repetidas en la misma corrida.
+
+- TDC/SOBREGIRO — Mapeo de Fechas sin inversión (Stage 2):
+  - El parseo de fechas se usa solo para ordenar/deduplicar AT02 con suposición día‑primero, pero las cadenas asignadas a los campos destino se copian tal cual desde AT02; no hay re‑formato, evitando inversiones día↔mes.
+
+- SOBREGIRO — Pre‑limpieza EEOR TABULAR (inicio de Stage 2):
+  - Aplicar trim + colapso de espacios a todos los campos de texto antes de asignar `Tipo_Facilidad` o mapear fechas. Incidencias por columnas modificadas bajo `EEOR_TABULAR_SOBREGIRO_AT12_<YYYYMMDD>.csv`.

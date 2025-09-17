@@ -29,6 +29,8 @@ def get_source_dir() -> Path:
 def get_raw_data_dir() -> Path:
     p = os.getenv("SBP_DATA_RAW_DIR")
     return Path(p) if p else (PROJECT_ROOT / "data" / "raw")
+# Backward-compat constants expected by some tests/utilities
+RAW_DIR = get_raw_data_dir()
 TMP_SOURCE_DIR = PROJECT_ROOT / ".tmp_source_run"
 TMP_RAW_DIR = PROJECT_ROOT / ".tmp_raw_run"
 METRICS_DIR = PROJECT_ROOT / "metrics"
