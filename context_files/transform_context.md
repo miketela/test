@@ -152,11 +152,11 @@ This initial stage focuses on correcting structural and format errors in the `BA
 **1.11. Foreign Trustee Standardization (Fiduciaria Extranjera)**
 - Objective: Standardize and enrich foreign trustee records during Stage 1 (AT12_BASE only; independent of other inputs).
 - Input Identification: Rows where the trustee name field contains "FDE".
-- Affected Fields: `Nombre_Fiduciaria` (selector), `Origen`/`Codigo_Origen` (set), `Cod_region`/`Codigo_Region` (set).
+- Affected Fields: `Nombre_Fiduciaria` (selector), `Origen`/`Origen_Garantia` (set), `Cod_region`/`Codigo_Region` (set).
 - Detailed Process (Logic):
   - Condition: If `Nombre_Fiduciaria` contains "FDE".
   - Actions:
-    - Set `Origen` (or `Codigo_Origen`) to 'E' to indicate foreign origin.
+    - Set `Origen` (or `Origen_Garantia`) to 'E' to indicate foreign origin.
     - Set `Cod_region` (or `Codigo_Region`) to '320' (fixed code for Guatemala).
   - Incidence Output: Export affected rows to `FDE_NOMBRE_FIDUCIARIO_<YYYYMMDD>.csv` (under `transforms/AT12/incidencias/`), preserving original values alongside updated ones for `Origen`/`Codigo_Origen` and `Cod_region`/`Codigo_Region`.
   - Notes: This rule does not reformat other fields and runs in Stage 1 as a self-contained base cleanup.

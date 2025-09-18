@@ -3460,7 +3460,7 @@ class AT12TransformationEngine(TransformationEngine):
             return df
 
         # Determine target columns
-        origen_target = 'Codigo_Origen' if 'Codigo_Origen' in cols else ('Origen' if 'Origen' in cols else None)
+        origen_target = 'Codigo_Origen' if 'Origen_Garantia' in cols else ('Origen' if 'Origen' in cols else None)
         region_target = 'Codigo_Region' if 'Codigo_Region' in cols else ('Cod_region' if 'Cod_region' in cols else None)
         # Keep originals for export
         orig_map = {}
