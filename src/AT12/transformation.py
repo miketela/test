@@ -2868,7 +2868,7 @@ class AT12TransformationEngine(TransformationEngine):
             return df
 
         candidates = [
-            'Tipo_Instrumento', 'Tipo_Poliza', 'Descripción de la Garantía', 'Descripcion de la Garantia', 'Descripcion_de_la_Garantia'
+            'id_Documento', 'Tipo_Poliza', 'Descripción de la Garantía', 'Descripcion de la Garantia', 'Descripcion_de_la_Garantia'
         ]
         available = [c for c in candidates if c in df.columns]
         if not available:
