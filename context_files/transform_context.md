@@ -47,41 +47,41 @@ This initial stage focuses on correcting structural and format errors in the `BA
     3.  Replace any sequence of two or more spaces in the middle of the field with a single space.
 *   **Final Action (Output):** The field is cleaned of all excess whitespace.
 
-**1.2. ERROR_0301: Id_Documento Validation and Correction (Tipo_Garantia = '0301') — Derecha→Izquierda**
+**1.2. ERROR_0301: Id_Documento Validation and Correction (Tipo_Garantia = '0301') — Right→Left**
 
-- Scope: Solo filas con `Tipo_Garantia = '0301'`.
-- Cascada: Se aplican las reglas en orden; cuando una regla actúa (excluir/modificar/incidente), se detiene el procesamiento del documento para `ERROR_0301`.
-- Indexación: Todas las posiciones se cuentan de derecha a izquierda (1‑based). Los truncados conservan los N últimos caracteres (der→izq).
+- Scope: Only rows with `Tipo_Garantia = '0301'`.
+- Cascade: Apply rules in order; when a rule acts (exclude/modify/incident), stop processing that document for `ERROR_0301`.
+- Indexing: Count all positions from right to left (1‑based). Truncations keep the last N characters (right→left).
 
-- RULE_0301_01 — Posiciones 13–15 (desde la derecha) y longitud:
-  - Si longitud < 15: no aplica; pasar a la siguiente.
-  - Si longitud ≥ 15: extraer posiciones 13–15 (der→izq) y comparar con {'100','110','120','130','810'}.
-    - Si coincide y longitud == 15: documento válido; excluir de `ERROR_0301`.
-    - Si coincide y longitud > 15: truncar conservando los últimos 15; registrar original y corregido; detener.
+- RULE_0301_01 — Positions 13–15 (from the right) and length:
+  - If length < 15: not applicable; proceed to the next rule.
+  - If length ≥ 15: extract positions 13–15 (right→left) and compare against {'100','110','120','130','810'}.
+    - If it matches and length == 15: valid document; exclude from `ERROR_0301`.
+    - If it matches and length > 15: truncate keeping the last 15; record original and corrected; stop.
 
-- RULE_0301_02 — Secuencia '701' en ventanas específicas (der→izq):
-  - Ventanas válidas: posiciones 11–9 o 10–8 (desde la derecha).
-  - Si 701 en 11–9 y longitud ≥ 11: documento válido; excluir (sin exportar).
-  - Si 701 en 10–8 y longitud = 10: documento válido; excluir y agregar al CSV de incidentes como seguimiento (tipo de error: "Secuencia 701 en posiciones 10-8 con longitud 10").
+- RULE_0301_02 — '701' sequence in specific windows (right→left):
+  - Valid windows: positions 11–9 or 10–8 (from the right).
+  - If 701 at 11–9 and length ≥ 11: valid document; exclude (no export).
+  - If 701 at 10–8 and length = 10: valid document; exclude and add to the incidents CSV for follow‑up (error type: "701 sequence at positions 10–8 with length 10").
 
-- RULE_0301_03 — Exclusión por posiciones 9–10 (der→izq) ∈ {'41','42'}:
-  - Si longitud ≥ 10 y posiciones 9–10 (der→izq) ∈ {'41','42'}: válido; excluir.
+- RULE_0301_03 — Exclusion by positions 9–10 (right→left) ∈ {'41','42'}:
+  - If length ≥ 10 and positions 9–10 (right→left) ∈ {'41','42'}: valid; exclude.
 
-- RULE_0301_04 — Restantes con '01' en posiciones 9–10 (der→izq):
-  - Si longitud < 10: no modificar; incidente para revisión manual.
-    - tipo de error: Longitud menor a 10 con "01" en posiciones 9-10
-  - Si longitud == 10: válido; excluir.
-  - Si longitud > 10: truncar conservando los últimos 10; registrar original y corregido.
+- RULE_0301_04 — Remaining with '01' at positions 9–10 (right→left):
+  - If length < 10: do not modify; create an incident for manual review.
+    - error type: Length less than 10 with "01" at positions 9–10
+  - If length == 10: valid; exclude.
+  - If length > 10: truncate keeping the last 10; record original and corrected.
 
-- Exportes (CSV en `transforms/AT12/incidencias/`):
-  - `ERROR_0301_MODIFIED_[YYYYMMDD].csv`: filas modificadas por RULE_0301_01 (truncado a 15) o RULE_0301_04 (truncado a 10). Siempre incluye columnas adyacentes `Id_Documento` y `Id_Documento_ORIGINAL`, y además `Regla`, `tipo de error` (ES) y `transformacion` (ES, p.ej., "Truncado (der→izq) a 15" / "Truncado (der→izq) a 10").
-  - `ERROR_0301_INCIDENTES_[YYYYMMDD].csv`: incidentes de RULE_0301_04 (longitud < 10 con '01' en 9–10) y seguimiento de RULE_0301_02 (701 en 10–8 con longitud 10). Siempre incluye `tipo de error` (ES) y `transformacion` = "Sin cambio"; puede incluir `descripcion` (EN) si se requiere detalle adicional.
+- Exports (CSVs under `transforms/AT12/incidencias/`):
+  - `ERROR_0301_MODIFIED_[YYYYMMDD].csv`: rows modified by RULE_0301_01 (truncated to 15) or RULE_0301_04 (truncated to 10). Always include adjacent columns `Id_Documento` and `Id_Documento_ORIGINAL`, plus `Regla`, `error_type` and `transformation` (e.g., "Truncated (right→left) to 15" / "Truncated (right→left) to 10").
+  - `ERROR_0301_INCIDENTES_[YYYYMMDD].csv`: incidents from RULE_0301_04 (length < 10 with '01' at 9–10) and follow‑up from RULE_0301_02 (701 at 10–8 with length 10). Always include `error_type` and `transformation` = "No change"; may include `description` if additional detail is required.
 
-- Logging: Se emite un resumen en logs al finalizar el paso `ERROR_0301` con métricas: candidatos, modificados, incidentes, excluidos por cada regla y sin cambio.
+- Logging: Emit a summary at the end of `ERROR_0301` with metrics: candidates, modified, incidents, excluded by each rule, and unchanged.
 
-- Post‑processing exports (CSV in `transforms/AT12/incidencias/`):
-  - ERROR_0301_MODIFIED_[YYYYMMDD].csv: rows where `Id_Documento` was truncated by RULE_0301_01 o RULE_0301_04; siempre incluye: `Id_Documento_ORIGINAL`, `Id_Documento` (corregido), `Regla`, `tipo de error` (ES), y `transformacion` (ES, p.ej. "Truncado a 15" / "Truncado a 10").
-  - ERROR_0301_INCIDENTES_[YYYYMMDD].csv: incidentes de RULE_0301_04 (longitud < 10 con '01' en posiciones 9–10); siempre incluye: `tipo de error` (ES) y `transformacion` = "Sin cambio"; puede incluir `descripcion` (EN) si se requiere detalle adicional.
+- Post‑processing exports (CSVs in `transforms/AT12/incidencias/`):
+  - `ERROR_0301_MODIFIED_[YYYYMMDD].csv`: rows where `Id_Documento` was truncated by RULE_0301_01 or RULE_0301_04; always include: `Id_Documento_ORIGINAL`, corrected `Id_Documento`, `Regla`, `error_type`, and `transformation` (e.g., "Truncated to 15" / "Truncated to 10").
+  - `ERROR_0301_INCIDENTES_[YYYYMMDD].csv`: incidents from RULE_0301_04 (length < 10 with '01' at positions 9–10); always include: `error_type` and `transformation` = "No change"; may include `description` if additional detail is required.
 
 **1.3. COMA EN FINCA EMPRESA**
 *   **Objective:** To remove disallowed characters from the document identifier.
@@ -89,27 +89,27 @@ This initial stage focuses on correcting structural and format errors in the `BA
 *   **Detailed Process (Logic):** Apply a text replacement function to substitute all occurrences of ',' with an empty string ('').
 *   **Final Action (Output):** The `Id_Documento` field is free of commas.
 
-**1.4. Fecha Cancelación Errada (Incorrect Cancellation Date)**
+**1.4. Incorrect Cancellation Date**
 *   **Objective:** To correct expiration dates that are clearly erroneous or outside a logical range.
 *   **Input Identification:** Records where the year of the `Fecha_Vencimiento` field is > 2100 or < 1985.
 *   **Detailed Process (Logic):** Overwrite the value of the `Fecha_Vencimiento` field with the constant `21001231`.
 *   **Final Action (Output):** The `Fecha_Vencimiento` field contains the corrected date `21001231`.
 
-**1.5. Fecha Avalúo Errada (Incorrect Appraisal Date)**
-- Objetivo: Estandarizar fechas de `Fecha_Ultima_Actualizacion` inválidas reemplazándolas por `fec_ini_prestamo`.
-- Alcance: Solo aplica a filas con `Tipo_Garantia` en {'0207','0208','0209'}.
-- Identificación (cualquiera de):
-  - `Fecha_Ultima_Actualizacion` > último día del mes de proceso.
-  - Año de `Fecha_Ultima_Actualizacion` < 1985.
-  - `Fecha_Ultima_Actualizacion` no cumple formato `YYYYMMDD`.
-- Proceso:
-  1. JOIN entre `BASE_AT12` y `AT03_CREDITOS`.
-  2. Llaves: `Numero_Prestamo` ↔ `num_cta` (con clave normalizada para robustez).
-  3. Para registros identificados, traer `fec_ini_prestamo`.
-  4. Sobrescribir `Fecha_Ultima_Actualizacion` con `fec_ini_prestamo`.
-- Acción final: `Fecha_Ultima_Actualizacion` corregida solo para `Tipo_Garantia` 0207/0208/0209.
+**1.5. Incorrect Appraisal Date**
+- Objective: Standardize invalid `Fecha_Ultima_Actualizacion` by replacing with `fec_ini_prestamo`.
+- Scope: Applies only to rows with `Tipo_Garantia` in {'0207','0208','0209'}.
+- Identification (any of):
+  - `Fecha_Ultima_Actualizacion` > last day of the processing month.
+  - Year of `Fecha_Ultima_Actualizacion` < 1985.
+  - `Fecha_Ultima_Actualizacion` does not conform to `YYYYMMDD` format.
+- Process:
+  1. JOIN between `BASE_AT12` and `AT03_CREDITOS`.
+  2. Keys: `Numero_Prestamo` ↔ `num_cta` (with normalized key for robustness).
+  3. For identified records, fetch `fec_ini_prestamo`.
+  4. Overwrite `Fecha_Ultima_Actualizacion` with `fec_ini_prestamo`.
+- Final action: `Fecha_Ultima_Actualizacion` corrected only for `Tipo_Garantia` 0207/0208/0209.
 
-**1.6. Inmuebles sin Póliza (Properties without Policy)**
+**1.6. Properties without Policy**
 *   **Objective:** To assign a policy type to property guarantees where it is missing.
 *   **Input Identification:** Records where (`Tipo_Garantia` = '0207' or '0208') AND `Tipo_Poliza` is empty.
 *   **Detailed Process (Logic):**
@@ -125,7 +125,7 @@ This initial stage focuses on correcting structural and format errors in the `BA
 *   **Detailed Process (Logic):** Overwrite the `Id_Documento` field with the constant **'99999/99999'**.
 *   **Final Action (Output):** `Id_Documento` is corrected to '99999/99999'.
 
-**1.8. Póliza Auto Comercial (Commercial Auto Policy)**
+**1.8. Commercial Auto Policy**
 *   **Objective:** To assign an organization code to auto policies that are missing it.
 *   **Input Identification:** Records where `Tipo_Garantia` = '0106,0101,0102,0103,0106,0108' AND `Nombre_Organismo` is empty.
 *   **Detailed Process (Logic):** Assign the constant value '700' to the `Nombre_Organismo` field.
@@ -142,7 +142,7 @@ This initial stage focuses on correcting structural and format errors in the `BA
 - Constraint: Accept any non-empty `num_poliza` (may include dashes/letters/symbols). If `num_poliza` is empty, do not update.
  - Exclusions: If `monto_asegurado` in `GARANTIA_AUTOS_AT12` equals any of {"Nuevo Desembolso", "PERDIDA TOTAL", "FALLECIDO"} (case-insensitive), skip all updates for that match and keep original values in `AT12_BASE` (including `Id_Documento`, dates, and amounts).
 
-**1.10. Inmueble sin Avaluadora (Property without Appraiser)**
+**1.10. Property without Appraiser**
 *   **Objective:** To assign an organization code to properties that are missing it.
 *   **Input Identification:** Records where `Tipo_Garantia` IN ('0207', '0208', '0209') AND `Nombre_Organismo` is empty.
 *   **Detailed Process (Logic):** Assign the constant value '774' to the `Nombre_Organismo` field.
@@ -167,41 +167,41 @@ This stage enriches the main dataset by joining it with auxiliary files and appl
 **2.0. Pre-processing of `Tipo_Facilidad` for TDC and Sobregiro**
 This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facilidad` is correctly set based on the presence of the loan in the core credit system.
 
-*   **Objective:** Asignar `Tipo_Facilidad` por presencia en archivos auxiliares (por subtipo).
-*   **Scope:** Aplica a `TDC_AT12` y `SOBREGIRO_AT12`; cada uno con su fuente. Se omite si el archivo auxiliar requerido no está disponible.
+*   **Objective:** Assign `Tipo_Facilidad` based on presence in auxiliary files (by subtype).
+*   **Scope:** Applies to `TDC_AT12` and `SOBREGIRO_AT12`; each with its source. Skip if the required auxiliary file is not available.
 *   **Detailed Process (Logic):**
-    - `TDC_AT12` con `AT03_TDC`:
-        1. Normalizar llaves en ambos lados: `Numero_Prestamo` y `num_cta` a dígitos‑solo, sin ceros a la izquierda.
-        2. Regla: si `Numero_Prestamo`(norm) ∈ `AT03_TDC.num_cta`(norm) ⇒ `Tipo_Facilidad='01'`; de lo contrario `'02'`.
-    3. Actualizar solo si el valor cambia. Incidencia: exportar filas cambiadas a `FACILIDAD_FROM_AT03_TDC_AT12_[YYYYMMDD].csv` con `Tipo_Facilidad_ORIGINAL`.
-    - `SOBREGIRO_AT12` con `AT03_CREDITOS`:
-        1. Normalizar llaves en ambos lados: `Numero_Prestamo` y `num_cta` a dígitos‑solo, sin ceros a la izquierda.
-        2. Regla: si `Numero_Prestamo`(norm) ∈ `AT03_CREDITOS.num_cta`(norm) ⇒ `Tipo_Facilidad='01'`; de lo contrario `'02'`.
-        3. Actualizar solo si el valor cambia. Incidencia: exportar filas cambiadas a `FACILIDAD_FROM_AT03_SOBREGIRO_AT12_[YYYYMMDD].csv` con `Tipo_Facilidad_ORIGINAL`.
+    - `TDC_AT12` with `AT03_TDC`:
+        1. Normalize keys on both sides: `Numero_Prestamo` and `num_cta` to digits‑only, no leading zeros.
+        2. Rule: if `Numero_Prestamo` (normalized) ∈ `AT03_TDC.num_cta` (normalized) ⇒ `Tipo_Facilidad='01'`; otherwise `'02'`.
+        3. Update only if the value changes. Incidence: export changed rows to `FACILIDAD_FROM_AT03_TDC_AT12_[YYYYMMDD].csv` with `Tipo_Facilidad_ORIGINAL`.
+    - `SOBREGIRO_AT12` with `AT03_CREDITOS`:
+        1. Normalize keys on both sides: `Numero_Prestamo` and `num_cta` to digits‑only, no leading zeros.
+        2. Rule: if `Numero_Prestamo` (normalized) ∈ `AT03_CREDITOS.num_cta` (normalized) ⇒ `Tipo_Facilidad='01'`; otherwise `'02'`.
+        3. Update only if the value changes. Incidence: export changed rows to `FACILIDAD_FROM_AT03_SOBREGIRO_AT12_[YYYYMMDD].csv` with `Tipo_Facilidad_ORIGINAL`.
 
 **2.1. `TDC_AT12` (Credit Cards) Processing**
-*   **Objective:** Generate unique guarantee numbers and enrich TDC dates; solo “Tarjeta repetida” produce incidencias (además de `FACILIDAD_FROM_AT03` en 2.0).
+*   **Objective:** Generate unique guarantee numbers and enrich TDC dates; only `Tarjeta_repetida` produces incidences (in addition to `FACILIDAD_FROM_AT03` in 2.0).
 *   **Detailed Process (Logic):**
-    1.  **`Número_Garantía` (por run):**
-        *   Llave: (`Id_Documento`, `Tipo_Facilidad`).
-        *   Asignación: secuencia desde 850,500 por run; primera ocurrencia asigna, repetidas reutilizan.
-        *   Sobrescritura: siempre reemplaza el valor del archivo fuente (no se preserva el original).
-        *   Formato: si es numérico, se presenta con padding a 10 dígitos.
-        *   Repetidos por `Numero_Prestamo` dentro de la misma llave: solo log (sin incidencias).
-    2.  **Date Mapping (sin inversión de día/mes):**
-        *   JOIN `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02) con llaves normalizadas (dígitos‑solo, sin ceros a la izquierda).
-        *   Deduplicación de AT02 previa al JOIN por llave normalizada, priorizando las filas con fechas más recientes (se interpretan como día‑primero para resolver ambigüedades en el ordenamiento, p. ej., 08‑05).
-        *   Asignación: `Fecha_Última_Actualización`/`Fecha_Ultima_Actualizacion` ← `Fecha_inicio` (AT02) y `Fecha_Vencimiento` ← `Fecha_Vencimiento` (AT02).
-        *   Formato: se copian las cadenas de fecha de AT02 tal cual; no se re‑formatea ni se invierten día/mes.
-        *   Sin match: mantener valores originales.
-    3.  **Inconsistencia `Tarjeta_repetida`:**
-        *   Detectar duplicados excluyendo `Numero_Prestamo` usando prioridad de clave:
-            - (`Identificacion_cliente`, `Identificacion_Cuenta`, `Tipo_Facilidad`) o,
+    1.  **`Numero_Garantia` (per run):**
+        *   Key: (`Id_Documento`, `Tipo_Facilidad`).
+        *   Assignment: sequence starting at 850,500 per run; the first occurrence assigns, repeats reuse.
+        *   Overwrite: always replaces the source file value (the original is not preserved).
+        *   Format: if numeric, present with padding to 10 digits.
+        *   Duplicates by `Numero_Prestamo` within the same key: log only (no incidences).
+    2.  **Date Mapping (no day/month inversion):**
+        *   JOIN `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02) with normalized keys (digits‑only, no leading zeros).
+        *   Deduplicate AT02 before the JOIN by normalized key, prioritizing rows with the most recent dates (interpreted as day‑first to resolve ordering ambiguities, e.g., 08‑05).
+        *   Assignment: `Fecha_Última_Actualización`/`Fecha_Ultima_Actualizacion` ← `Fecha_inicio` (AT02) and `Fecha_Vencimiento` ← `Fecha_Vencimiento` (AT02).
+        *   Formatting: copy the date strings from AT02 as‑is; do not reformat or invert day/month.
+        *   No match: keep original values.
+    3.  **Inconsistency `Tarjeta_repetida`:**
+        *   Detect duplicates excluding `Numero_Prestamo` using key priority:
+            - (`Identificacion_cliente`, `Identificacion_Cuenta`, `Tipo_Facilidad`), or
             - (`Id_Documento`, `Tipo_Facilidad`).
-        *   Llaves normalizadas (dígitos‑solo/trim) para evitar falsos positivos/negativos.
+        *   Normalize key parts (digits‑only/trim) to avoid false positives/negatives.
         *   Export: `INC_REPEATED_CARD_TDC_AT12_[YYYYMMDD].csv`.
 
-*Ejemplo `Numero_Garantia` (por run)*
+*Example `Numero_Garantia` (per run)*
 
 | Id_Documento | Numero_Prestamo | Tipo_Facilidad | Numero_Garantia |
 | --- | --- | --- | --- |
@@ -212,20 +212,20 @@ This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facili
 2.2. `SOBREGIRO_AT12` (Overdrafts) Processing
 Objective: To enrich the overdraft data by assigning the correct facility type (Tipo_Facilidad) and updating key dates from the master accounts file.
 Detailed Process (Logic):
-0. Pre‑clean: aplicar EEOR TABULAR (trim + colapso de espacios) antes de cualquier paso de Stage 2.
+0. Pre‑clean: apply EEOR TABULAR (trim + collapse multiple spaces) before any Stage 2 step.
 1. `Tipo_Facilidad` Assignment from `SOBREGIRO_AT12` (FIRST):
     * A JOIN is performed between the `SOBREGIRO_AT12` input and the `AT03_CREDITO` file.
     * Keys: `Numero_Prestamo` (from `SOBREGIRO_AT12`) ↔ num_cta (from `AT03_CREDITO`).
     * Rule:
         * If a record from `SOBREGIRO_AT12` finds a match in AT03_CREDITO, its `Tipo_Facilidad` is set to '01'.
         * If no match is found, its `Tipo_Facilidad` is set to '02'.
-2. Date Mapping from AT02_CUENTAS (sin inversión de día/mes):
+2. Date Mapping from AT02_CUENTAS (no day/month inversion):
     * A JOIN is performed between the SOBREGIRO_AT12 data (post-step 1) and the AT02_CUENTAS master file.
     * Keys: Id_Documento (from SOBREGIRO_AT12) ↔ identificacion_de_cuenta (from AT02_CUENTAS).
     * Mapping Rules:
         * If a match is found, Fecha_Ultima_Actualizacion is overwritten with the value from Fecha_inicio (from AT02_CUENTAS).
         * If a match is found, Fecha_Vencimiento is overwritten with the value from Fecha_Vencimiento (from AT02_CUENTAS).
-        * Dedup de AT02 previo al JOIN prioriza fechas más recientes; el parseo para ordenar asume día‑primero para resolver ambigüedad, pero las cadenas copiadas se conservan tal cual (sin re‑formato).
+        * Pre‑JOIN dedup of AT02 prioritizes the most recent dates; parsing for ordering assumes day‑first to resolve ambiguity, but copied strings are preserved as‑is (no re‑formatting).
         * If no match is found, the original date values in the record are kept.
     * Incidence Reporting:
         * Any record whose dates are modified during the "Date Mapping" step is exported to a dedicated incident file.
@@ -257,7 +257,7 @@ This stage applies more complex business rules and generates specific reports fo
         *   Other fields are left blank for Operations to complete.
 
 ---
-valo de importe de todos lo insumos debe ser igual al valor de la garantia
+Note: The 'Importe' value from all inputs must equal the guarantee's value.
 #### **Stage 4: Final Validation and Value Correction**
 This is a critical stage of the ETL pipeline where financial validations are performed and final values are set before output generation.
 
@@ -314,22 +314,22 @@ This is a critical stage of the ETL pipeline where financial validations are per
 
 Note (Input/RAW normalization): TXT inputs (including Excel “Unicode Text”) are accepted and converted to UTF‑8 CSV in RAW with auto‑detected encoding/delimiter. During this conversion, and for CSV sources directly, all monetary fields are normalized to dot (`.`) decimals to unify downstream handling. Processed CSVs also maintain dot decimals.
 
-### **Nomenclatura de Incidencias (CSV)**
-- Subconjuntos por regla (filas completas):
-  - Formato: `[REGLA]_[SUBTIPO]_[YYYYMMDD].csv` (ej.: `FECHA_AVALUO_ERRADA_BASE_AT12_20250701.csv`).
-  - Incluyen columnas `_ORIGINAL` junto a cada campo corregido.
-- Agregados globales (p.ej., EEOR_TABULAR):
-  - Formato: `EEOR_TABULAR_[SUBTIPO]_[YYYYMMDD].csv` (incluye subtipo para evitar sobreescritura entre tipos).
+### **Incidence Naming (CSV)**
+- Subsets per rule (full rows):
+  - Format: `[RULE]_[SUBTYPE]_[YYYYMMDD].csv` (e.g., `FECHA_AVALUO_ERRADA_BASE_AT12_20250701.csv`).
+  - Include `_ORIGINAL` columns next to every corrected field.
+- Global aggregates (e.g., EEOR_TABULAR):
+  - Format: `EEOR_TABULAR_[SUBTYPE]_[YYYYMMDD].csv` (include subtype to avoid overwriting across types).
 
-### **Anexo: Esquema de Archivos de Entrada**
+### **Annex: Input File Schema**
 
--   **AT03_CREDITOS**: Requerido para la validación de `valor_minimo_avaluo` y `Fecha_Avalúo_Errada`. Contiene detalles de créditos cruciales para el análisis.
--   **BASE_AT12**: Archivo principal a ser transformado.
--   **Otros archivos**: `SOBREGIRO_AT12`, `TDC_AT12`, `VALORES_AT12` son archivos auxiliares que enriquecen la transformación de AT12.
+-   **AT03_CREDITOS**: Required for `valor_minimo_avaluo` validation and `Fecha_Avaluo_Errada`. Contains key credit details for analysis.
+-   **BASE_AT12**: Main file to be transformed.
+-   **Other files**: `SOBREGIRO_AT12`, `TDC_AT12`, `VALORES_AT12` are auxiliary files that enrich the AT12 transformation.
 
 ---
 
-### **Anexo: Campos Monetarios (normalizados a punto)**
+### **Annex: Monetary Fields (normalized to dot)**
 - BASE_AT12: `Valor_Inicial`, `Valor_Garantia`, `Valor_Ponderado`, `Importe`.
 - TDC_AT12: `Valor_Inicial`, `Valor_Garantía`, `Valor_Ponderado`, `Importe`, `LIMITE`, `SALDO`.
 - SOBREGIRO_AT12: `Valor_Inicial`, `Valor_Garantia`, `valor_ponderado`, `Importe`.
@@ -338,36 +338,36 @@ Note (Input/RAW normalization): TXT inputs (including Excel “Unicode Text”) 
 - AT03_CREDITOS: `valor_inicial`, `intereses_x_cobrar`, `saldo`, `provision`, `provison_NIIF`, `provision_no_NIIF`, `saldo_original`, `mto_garantia_1..5`, `mto_xv30d/60d/90d/120d/180d/1a`, `Mto_xV1a5a`, `Mto_xV5a10a`, `Mto_xVm10a`, `mto_v30d/60d/90d/120d/180d/1a`, `mto_vm1a`, `mto_a_pagar`, `interes_diferido`, `tasa_interes`, `monto_ult_pago_capital`, `monto_ult_pago_interes`.
 - AT03_TDC: `valor_inicial`, `intereses_x_cobrar`, `saldo`, `provision`, `provison_niif`, `provision_no_niif`, `saldo_original_2`, `mto_garantia_1..5`, `mto_xv30d/60d/90d/120d/180d/1a`, `mto_xv1a5a`, `mto_xv5a10a`, `mto_xvm10a`, `mto_v30d/60d/90d/120d/180d/1a`, `mto_vm1a`, `mto_a_pagar`, `interes_dif`, `tasa_interes`, `monto_ultimo_pago_cap`, `monto_ultimo_pago_int`.
 - GARANTIA_AUTOS_AT12: `saldocapital`, `monto_asegurado`.
-- POLIZA_HIPOTECAS_AT12: `saldocapital`, `seguro_incendio` (si aplica como monto).
+- POLIZA_HIPOTECAS_AT12: `saldocapital`, `seguro_incendio` (if applicable as amount).
 - AFECTACIONES_AT12: `at_saldo`.
 - VALOR_MINIMO_AVALUO_AT12: `at_valor_garantia`, `at_valor_pond_garantia`, `valor_garantia`, `nuevo_at_valor_garantia`, `nuevo_at_valor_pond_garantia`, `venta_rapida`, `factor`.
 ### New/Updated Rules (2025-09)
 
 These clarifications and rules are incorporated into the unified pipeline and executed in cascade as specified below.
 
-- BASE — Excluir Sobregiros (antes de otras dependencias; Stage 1b):
-  - Join `Numero_Prestamo` (BASE) ↔ `AT03_CREDITOS.num_cta` con llaves normalizadas (dígitos‑solo, sin ceros a la izquierda).
-  - Eliminar filas donde `Tipo_Facilidad='02'` y el préstamo esté presente en AT03.
-  - Incidencias: `EXCLUDE_SOBREGIROS_BASE_<YYYYMMDD>.csv` con las filas eliminadas.
+- BASE — Exclude Overdrafts (before other dependencies; Stage 1b):
+  - Join `Numero_Prestamo` (BASE) ↔ `AT03_CREDITOS.num_cta` with normalized keys (digits‑only, no leading zeros).
+  - Remove rows where `Tipo_Facilidad='02'` and the loan appears in AT03.
+  - Incidences: `EXCLUDE_SOBREGIROS_BASE_<YYYYMMDD>.csv` with the removed rows.
 
-- BASE — Código de Fiduciaria obsoleto (Stage 1a):
-  - Regla: reemplazar `Codigo_Fiduciaria=508` por `528`.
-  - Incidencias: `FIDUCIARIA_CODE_UPDATE_<YYYYMMDD>.csv` con `Codigo_Fiduciaria_ORIGINAL` adyacente.
+- BASE — Obsolete Trustee Code (Stage 1a):
+  - Rule: replace `Codigo_Fiduciaria=508` with `528`.
+  - Incidences: `FIDUCIARIA_CODE_UPDATE_<YYYYMMDD>.csv` with adjacent `Codigo_Fiduciaria_ORIGINAL`.
 
-- BASE — Padding de `Id_Documento` (última regla de Stage 1):
-  - Si `Id_Documento` es dígitos puros y longitud < 10, aplicar `zfill(10)`.
-  - Si longitud ≥ 10 o contiene caracteres no numéricos (p.ej., “/”), no cambiar.
-  - Incidencias: `ID_DOCUMENTO_PADDING_BASE_AT12_<YYYYMMDD>.csv` con `Id_Documento_ORIGINAL`.
+- BASE — `Id_Documento` padding (last rule of Stage 1):
+  - If `Id_Documento` is purely digits and length < 10, apply `zfill(10)`.
+  - If length ≥ 10 or contains non‑numeric characters (e.g., "/"), do not change.
+  - Incidences: `ID_DOCUMENTO_PADDING_BASE_AT12_<YYYYMMDD>.csv` with `Id_Documento_ORIGINAL`.
 
-- BASE — “Contrato Privado” → `Nombre_Organismo='NA'` (Stage 1a):
-  - Detectar “Contrato Privado” (case-insensitive) en columnas candidatas: `Tipo_Instrumento`, `Tipo_Poliza`, `Descripción de la Garantía` (y variantes sin acentos).
-  - Asignar `Nombre_Organismo='NA'` y exportar `CONTRATO_PRIVADO_NA_<YYYYMMDD>.csv` con valor original adyacente.
+- BASE — "Contrato Privado" → `Nombre_Organismo='NA'` (Stage 1a):
+  - Detect "Contrato Privado" (case‑insensitive) in candidate columns: `Tipo_Instrumento`, `Tipo_Poliza`, `Descripción de la Garantía` (and variants without accents).
+  - Set `Nombre_Organismo='NA'` and export `CONTRATO_PRIVADO_NA_<YYYYMMDD>.csv` with the original value alongside.
 
-- TDC — `Número_Garantía` (Stage 2):
-  - Secuencia por llave (`Id_Documento`,`Tipo_Facilidad`) iniciando en 850,500; siempre sobrescribe el valor del archivo fuente; padding a 10 dígitos si es numérico; reutiliza para llaves repetidas en la misma corrida.
+- TDC — `Numero_Garantia` (Stage 2):
+  - Sequence by key (`Id_Documento`,`Tipo_Facilidad`) starting at 850,500; always overwrite the source value; pad to 10 digits if numeric; reuse for repeated keys within the same run.
 
-- TDC/SOBREGIRO — Mapeo de Fechas sin inversión (Stage 2):
-  - El parseo de fechas se usa solo para ordenar/deduplicar AT02 con suposición día‑primero, pero las cadenas asignadas a los campos destino se copian tal cual desde AT02; no hay re‑formato, evitando inversiones día↔mes.
+- TDC/SOBREGIRO — Date Mapping without inversion (Stage 2):
+  - Date parsing is used only to order/deduplicate AT02 under a day‑first assumption; strings copied to destination fields are preserved as‑is from AT02; no re‑formatting, avoiding day↔month inversions.
 
-- SOBREGIRO — Pre‑limpieza EEOR TABULAR (inicio de Stage 2):
-  - Aplicar trim + colapso de espacios a todos los campos de texto antes de asignar `Tipo_Facilidad` o mapear fechas. Incidencias por columnas modificadas bajo `EEOR_TABULAR_SOBREGIRO_AT12_<YYYYMMDD>.csv`.
+- SOBREGIRO — EEOR TABULAR pre‑clean (start of Stage 2):
+  - Apply trim + collapse spaces across all text columns before assigning `Tipo_Facilidad` or mapping dates. Incidences for modified rows under `EEOR_TABULAR_SOBREGIRO_AT12_<YYYYMMDD>.csv`.
