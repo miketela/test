@@ -2867,8 +2867,12 @@ class AT12TransformationEngine(TransformationEngine):
         if subtype and str(subtype).upper() not in {"BASE_AT12", "BASE", "AT12_BASE"}:
             return df
 
+        # Consider common header variants for Id_Documento and Garantía descriptions
         candidates = [
-            'id_Documento', 'Tipo_Poliza', 'Descripción de la Garantía', 'Descripcion de la Garantia', 'Descripcion_de_la_Garantia'
+            'Id_Documento', 'id_Documento', 'id_documento', 'ID_DOCUMENTO',
+            'Tipo_Poliza',
+            'Descripción de la Garantía', 'Descripcion de la Garantia',
+            'Descripcion_de_la_Garantia', 'Descripción_de_la_Garantía'
         ]
         available = [c for c in candidates if c in df.columns]
         if not available:
@@ -2878,7 +2882,20 @@ class AT12TransformationEngine(TransformationEngine):
             df['Nombre_Organismo'] = ''
         contains_cp = None
         for c in available:
-            col_mask = df[c].astype(str).str.contains('Contrato\s+Privado', case=False, na=False, regex=True)
+            # Normalize unicode and whitespace to catch NBSP and spacing variants
+            series = df[c].astype(str)
+            try:
+                series = series.str.normalize('NFKC')
+            except Exception:
+                pass
+            series = (
+                series
+                .str.replace('\u00A0', ' ', regex=False)  # NBSP to space
+                .str.replace(r"\s+", " ", regex=True)   # collapse whitespace
+                .str.strip()
+            )
+            # Flexible match: allow variable whitespace between words
+            col_mask = series.str.contains(r'contrato\s*privado', case=False, na=False, regex=True)
             contains_cp = col_mask if contains_cp is None else (contains_cp | col_mask)
         if contains_cp is not None and contains_cp.any():
             try:

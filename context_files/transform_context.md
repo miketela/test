@@ -360,7 +360,7 @@ These clarifications and rules are incorporated into the unified pipeline and ex
   - Incidences: `ID_DOCUMENTO_PADDING_BASE_AT12_<YYYYMMDD>.csv` with `Id_Documento_ORIGINAL`.
 
 - BASE — "Contrato Privado" → `Nombre_Organismo='NA'` (Stage 1a):
-  - Detect "Contrato Privado" (case‑insensitive) in candidate columns: `Tipo_Instrumento`, `Tipo_Poliza`, `Descripción de la Garantía` (and variants without accents).
+  - Detect "Contrato Privado" (case‑insensitive) in candidate columns: `id_Documento`,`Tipo_Instrumento`, `Tipo_Poliza`, `Descripción de la Garantía` (and variants without accents).
   - Set `Nombre_Organismo='NA'` and export `CONTRATO_PRIVADO_NA_<YYYYMMDD>.csv` with the original value alongside.
 
 - TDC — `Numero_Garantia` (Stage 2):
