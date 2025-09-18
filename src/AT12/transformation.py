@@ -3436,7 +3436,7 @@ class AT12TransformationEngine(TransformationEngine):
         """1.11. Estandarización de Fiduciaria Extranjera (FDE) en AT12_BASE.
 
         Condición: `Nombre_Fiduciaria` contiene 'FDE'.
-        Acciones: `Codigo_Origen`/`Origen` = 'E'; `Codigo_Region`/`Cod_region` = '320'.
+        Acciones: `Origen_Garantia`/`Origen` = 'E'; `Codigo_Region`/`Cod_region` = '320'.
         Exporta incidencias a FDE_NOMBRE_FIDUCIARIO_<YYYYMMDD>.csv con columnas originales adyacentes.
         """
         if df is None or df.empty:
@@ -3460,7 +3460,7 @@ class AT12TransformationEngine(TransformationEngine):
             return df
 
         # Determine target columns
-        origen_target = 'Codigo_Origen' if 'Origen_Garantia' in cols else ('Origen' if 'Origen' in cols else None)
+        origen_target = 'Origen_Garantia' if 'Origen_Garantia' in cols else ('Origen_Garantia' if 'Origen_Garantia' in cols else None)
         region_target = 'Codigo_Region' if 'Codigo_Region' in cols else ('Cod_region' if 'Cod_region' in cols else None)
         # Keep originals for export
         orig_map = {}
