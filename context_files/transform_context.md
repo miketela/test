@@ -232,10 +232,17 @@ Detailed Process (Logic):
         * File Name: DATE_MAPPING_CHANGES_SOBREGIRO_[YYYYMMDD].csv. Content: includes all columns of the modified rows, plus additional columns to preserve the original values for traceability: Fecha_Ultima_Actualizacion_ORIGINAL and Fecha_Vencimiento_ORIGINAL.
 
 **2.3. `VALORES_AT12` (Securities) Generation**
-*   **Objective:** To construct the securities atom with the complete, final column structure.
+*   **Objective:** Build the final VALORES dataset with the regulatory layout, enforcing 0507-specific rules.
 *   **Detailed Process (Logic):**
-    1.  Select a reference record from `BASE_AT12` where `Tipo_Garantia` = '0507'.
-    2.  Populate the new `VALORES_AT12` atom. Fields that are missing in the original source but required in the final structure (e.g., `Clave_Pais`, `Clave_Empresa`) are filled with the values from the reference record.
+    1.  **Raw normalization:** Apply header normalization, trim strings, convert `n/a`/`na` → `NA`, and parse monetary columns tolerantly (supports comma or dot decimal formats). Helper columns `Valor_*__num` are created for numeric operations.
+    2.  **Identifier standardization:**
+        *   `Numero_Prestamo`: keep digits only; zero-pad to 10 when length <10, preserve longer alphanumeric IDs.
+        *   `Id_Documento`: if the text matches `Linea Sobregiro de la cuenta {Numero_Prestamo}`, replace it with the normalized loan identifier; otherwise zero-pad the digits extracted from the source value.
+    3.  **Tipo_Facilidad resolution:** Reuse the AT03 join rule from TDC/SOBREGIRO. Join against `AT03_CREDITOS` (and `AT03_TDC` when provided). Matches → `Tipo_Facilidad = '01'`; non-matches → `'02'`. Changes are exported as `FACILIDAD_FROM_AT03_VALORES` incidences.
+    4.  **Numero_Garantia assignment:** Generate padded 10-digit numbers using the sequence registry. If TDC guarantees were assigned in the same run, start at `last_tdc + 500`; otherwise pull from the persistent registry (`valores_numero_garantia.json`). Each assignment is logged as `VALORES_NUMERO_GARANTIA_GENERATION`.
+    5.  **Constants & derived fields:** Stamp `Clave_Pais=24`, `Clave_Empresa=24`, `Clave_Tipo_Garantia=3`, `Clave_Subtipo_Garantia=61`, `Clave_Tipo_Pren_Hipo=0`, `Tipo_Instrumento=NA`, `Tipo_Poliza=NA`, `Status_Garantia=0`, `Status_Prestamo=-1`, `Calificacion_Emisor=NA`, `Calificacion_Emisision=NA`, `Segmento=PRE`. Mirror identifiers: `Numero_Cis_Prestamo = Numero_Cis_Garantia`, `Numero_Ruc_Prestamo = Numero_Ruc_Garantia`.
+    6.  **Importe enforcement:** Force `Importe = Valor_Garantia` using the normalized numeric series. If any discrepancy remains, the transformation aborts with a fatal error (incidence severity `error`).
+    7.  **Output formatting:** Produce the final column order with dot decimal strings (no thousand separators, no trailing zeros) and ensure all required columns exist, filling missing fields with empty strings.
 
 ---
 
