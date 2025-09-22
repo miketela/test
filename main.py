@@ -7,13 +7,11 @@ Handles exploration and transformation processes for regulatory atoms.
 import argparse
 import sys
 from pathlib import Path
-from typing import List, Optional
 from datetime import datetime
 
 from src.core.config import Config
 from src.core.log import get_logger, setup_logging, add_file_logging
 from src.core.time_utils import resolve_period
-from src.core.reports import create_exploration_report
 import importlib.util as _importlib_util
 from importlib import import_module as _import_module
 from pathlib import Path as _Path
@@ -57,15 +55,8 @@ def main():
     transform_parser.add_argument("--year", type=int, help="Year to process")
     transform_parser.add_argument("--month", help="Month to process (number or name)")
     
-    # Report command
-    report_parser = subparsers.add_parser("report", help="Generate PDF reports")
-    report_parser.add_argument("--metrics-file", required=True, help="Path to metrics JSON file")
-    report_parser.add_argument("--output", help="Output PDF file path")
-    report_parser.add_argument("--title", help="Custom report title")
-    report_parser.add_argument("--raw-data-dir", help="Path to raw data directory for additional analysis")
-    
     # TUI command
-    subparsers.add_parser("tui", help="Interactive terminal UI for explore/transform/report")
+    subparsers.add_parser("tui", help="Interactive terminal UI for explore/transform")
     
     args = parser.parse_args()
     
@@ -90,47 +81,6 @@ def main():
                 return 1
             tui_main()
             return 0
-        if args.command == "report":
-            # Handle report generation
-            metrics_file = Path(args.metrics_file)
-            if not metrics_file.exists():
-                logger.error(f"Metrics file not found: {metrics_file}")
-                return 1
-            
-            # Determine output file path
-            if args.output:
-                output_file = Path(args.output)
-            else:
-                # Generate default output filename
-                output_file = Path(config.reports_dir) / f"{metrics_file.stem}_report.pdf"
-            
-            # Ensure output directory exists
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Generate report
-            raw_data_dir = Path(args.raw_data_dir) if args.raw_data_dir else Path(config.data_raw_dir)
-            
-            # Add file logging for this run (try to extract run_id from metrics filename)
-            import re as _re
-            m = _re.search(r"__run-(\d{6})", metrics_file.stem)
-            run_id_for_log = m.group(1) if m else datetime.now().strftime('%Y%m')
-            log_file = Path(config.logs_dir) / "AT12" / "report" / f"report_{run_id_for_log}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
-            add_file_logging(log_file, level=config.log_level)
-
-            logger.info(f"Generating PDF report from {metrics_file}")
-            success = create_exploration_report(
-                metrics_file=metrics_file,
-                output_file=output_file,
-                title=args.title,
-                raw_data_dir=raw_data_dir
-            )
-            
-            if success:
-                logger.info(f"Report generated successfully: {output_file}")
-                return 0
-            else:
-                logger.error("Failed to generate report")
-                return 1
         
         # Handle explore and transform commands
         # Resolve period
@@ -154,6 +104,9 @@ def main():
                     log_file = Path(config.logs_dir) / atom / "transform" / f"{atom}_transform_{run_id}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
                     add_file_logging(log_file, level=config.log_level)
                     result = processor.transform(period[0], period[1], f"{period[0]}{period[1]:02d}")
+                else:
+                    logger.error(f"Unsupported command for atom processing: {args.command}")
+                    return 1
                 
                 # Update exit code based on result
                 # Treat only result.success == False as failure (1)

@@ -256,7 +256,6 @@ Invalid,Data,Here,Too,Many,Fields
             "data_raw_dir": str(base_path / "data" / "raw"),
             "data_processed_dir": str(base_path / "data" / "processed"),
             "metrics_dir": str(base_path / "metrics"),
-            "reports_dir": str(base_path / "reports"),
             "logs_dir": str(base_path / "logs"),
             "schemas_dir": str(base_path / "schemas"),
             "log_level": "INFO",
@@ -270,7 +269,7 @@ Invalid,Data,Here,Too,Many,Fields
         
         # Create directories
         directories = [
-            "data/raw", "data/processed", "metrics", "reports", 
+            "data/raw", "data/processed", "metrics", 
             "logs", "schemas/AT12"
         ]
         

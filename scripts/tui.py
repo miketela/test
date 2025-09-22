@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple terminal interface to run explore/transform/report and pick files.
+Simple terminal interface to run explore/transform and pick files.
 
 - Lists available files under `source/`.
 - Lets you choose which files to include for explore/transform.
@@ -33,7 +33,6 @@ def get_raw_data_dir() -> Path:
 RAW_DIR = get_raw_data_dir()
 TMP_SOURCE_DIR = PROJECT_ROOT / ".tmp_source_run"
 TMP_RAW_DIR = PROJECT_ROOT / ".tmp_raw_run"
-METRICS_DIR = PROJECT_ROOT / "metrics"
 
 # Persist simple state across actions within the same TUI session
 LAST_SELECTED_SUBTYPES: Optional[Set[str]] = None
@@ -680,29 +679,6 @@ def action_transform():
         _show_run_log_tail("transform", f"{year}{month:02d}")
 
 
-def action_report():
-    # Pick a metrics json under metrics/
-    metric_files = sorted((METRICS_DIR).glob("*.json"))
-    if not metric_files:
-        print("No metrics JSON files found under metrics/.")
-        return
-    print("\nAvailable metrics files:")
-    for i, p in enumerate(metric_files, 1):
-        print(f"  {i}. {p.name}")
-    idxs = parse_indices(input("Select one (number): "), len(metric_files))
-    if not idxs:
-        print("No selection.")
-        return
-    chosen = metric_files[idxs[0] - 1]
-    out = prompt("Output PDF path", str(PROJECT_ROOT / "reports" / "out.pdf"))
-    rc = run_cmd([sys.executable, str(PROJECT_ROOT / "main.py"),
-                  "report", "--metrics-file", str(chosen), "--output", out])
-    if rc != 0:
-        print("Report generation failed.")
-        # Try to infer run_id from metrics filename and show report log tail
-        m = re.search(r"__run-(\d{6})", chosen.stem)
-        if m:
-            _show_run_log_tail("report", m.group(1))
 
 def _collect_output_files() -> List[Path]:
     """Collect output files for cleanup (testing only)."""
@@ -797,7 +773,6 @@ def main():
     menu_items = [
         "Explore (pick files)",
         "Transform (pick from raw/source)",
-        "Report (choose metrics JSON)",
         "Clean (delete outputs - testing)",  # TODO: remove before release
         "Exit",
     ]
@@ -812,8 +787,6 @@ def main():
             _explore_menu_loop()
         elif selection.startswith("Transform"):
             action_transform()
-        elif selection.startswith("Report"):
-            action_report()
         elif selection.startswith("Clean"):
             action_clean()
         else:

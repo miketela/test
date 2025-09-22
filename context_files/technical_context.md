@@ -1,7 +1,7 @@
 # Technical Context — Operational Details (MVP v0.8)
 
 ## File Conventions & Parsing
-- **Input:** `.CSV` (text). **Exploration outputs:** PDFs + metrics. **Transformation output:** **one consolidated TXT** (layout pending).
+- **Input:** `.CSV` (text). **Exploration outputs:** metrics (PDF export removed). **Transformation output:** **one consolidated TXT** (layout pending).
 - **Strict CSV read/write:**
   - `delimiter = ","`, `encoding = "utf-8"`
   - `quotechar = '"'`, `doublequote = true`
@@ -250,6 +250,6 @@ else:
 ```
 
 ## Retention & Security
-- **Retention:** 24 months (logs & reports).
+- **Retention:** 24 months (logs & metrics).
 - **PII:** no masking for now (revisit before production).
-- **Permissions:** restrict `reports/` and `logs/` to authorized users (OS/ACLs).
+- **Permissions:** restrict `metrics/` and `logs/` to authorized users (OS/ACLs).

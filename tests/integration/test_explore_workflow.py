@@ -21,11 +21,10 @@ class TestExploreWorkflow:
         data_raw_dir = temp_dir / "data" / "raw"
         data_processed_dir = temp_dir / "data" / "processed"
         metrics_dir = temp_dir / "metrics"
-        reports_dir = temp_dir / "reports"
         logs_dir = temp_dir / "logs"
         schemas_dir = temp_dir / "schemas"
-        
-        for directory in [data_raw_dir, data_processed_dir, metrics_dir, reports_dir, logs_dir, schemas_dir]:
+
+        for directory in [data_raw_dir, data_processed_dir, metrics_dir, logs_dir, schemas_dir]:
             directory.mkdir(parents=True, exist_ok=True)
         
         # Create configuration
@@ -34,7 +33,6 @@ class TestExploreWorkflow:
             "data_raw_dir": str(data_raw_dir),
             "data_processed_dir": str(data_processed_dir),
             "metrics_dir": str(metrics_dir),
-            "reports_dir": str(reports_dir),
             "logs_dir": str(logs_dir),
             "schemas_dir": str(schemas_dir),
             "log_level": "INFO",

@@ -1041,7 +1041,7 @@ class AT12TransformationEngine(TransformationEngine):
         for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'Importe'):
             num_col = col + '__num'
             if num_col in df.columns:
-                target_name = 'Valor_Garantia' if col in ('Valor_Garantia', 'Valor_Garantía') else col
+                ho = 'Valor_Garantia' if col in ('Valor_Garantia', 'Valor_Garantía') else col
                 df[target_name] = self._format_money_comma(df[num_col])
         if 'Importe__num' in df.columns:
             df['Importe'] = self._format_money_comma(df['Importe__num'])

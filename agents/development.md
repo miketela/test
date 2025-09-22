@@ -16,13 +16,12 @@
 
 ## Seguridad y Datos
 - No subir PII real. Usar `tests/fixtures/` y datos sintéticos.
-- Artefactos pesados permanecen en `data/`, `metrics/`, `reports/` (gitignored donde aplique).
-- Config por ENV/CLI (`config.py`): `SOURCE_DIR`, `RAW_DIR`, `REPORTS_DIR`, `METRICS_DIR`, `LOGS_DIR`, `STRICT_PERIOD`.
+- Artefactos pesados permanecen en `data/` y `metrics/` (gitignored donde aplique).
+- Config por ENV/CLI (`config.py`): `SOURCE_DIR`, `RAW_DIR`, `METRICS_DIR`, `LOGS_DIR`, `STRICT_PERIOD`.
 
 ## Validación Local
 - Pruebas: `pytest -v` (o `pytest -m integration`).
-- Reportes: `python main.py report --metrics-file metrics/<json>`.
-- Salidas esperadas por run: métricas, PDF, logs, espejos en `data/raw`.
+- Salidas esperadas por run: métricas, logs, espejos en `data/raw`.
 
 ## Checklist de PRs
 - Incluye pruebas y ejemplos de uso (comandos).

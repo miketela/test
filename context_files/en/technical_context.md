@@ -1,7 +1,7 @@
 # Technical Context — Operational Details (MVP v0.8)
 
 ## Files & Parsing
-- Input: CSV; Exploration outputs: PDFs + metrics; Transformation: final TXT(s).
+- Input: CSV; Exploration outputs: metrics (PDF export removed); Transformation: final TXT(s).
 - CSV params: delimiter `,`, encoding `utf-8`, quote `"`, strictly validate row width.
 - Dates: content `YYYYMMDD`; filename validated in UPPERCASE.
 - Chunking: `CHUNK_ROWS=1_000_000`.

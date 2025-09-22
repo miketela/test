@@ -8,7 +8,7 @@
 3. Per-atom Modules (`src/AT12/processor.py`)
 - Public interface: `discover_files`, `explore`, `transform`.
 4. Core Utilities (`src/core/`)
-- `io.py`, `fs.py`, `time_utils.py`, `reports.py`, `log.py`, `metrics.py`, `naming.py`, `header_mapping.py`.
+- `io.py`, `fs.py`, `time_utils.py`, `log.py`, `metrics.py`, `naming.py`, `header_mapping.py`.
 5. Schemas (`schemas/<ATOM>/`)
 - `expected_files.json`, `schema_headers.json`.
 
@@ -27,6 +27,6 @@ transforms/
 - Audit: mapping reports and metrics JSON.
 
 ## Data Flow (High-level)
-- Explore: discover → map headers → copy to `data/raw` with run versioning → metrics → PDF report.
+- Explore: discover → map headers → copy to `data/raw` with run versioning → metrics (PDF export removed).
 - Transform: stage pipeline (cleaning → enrichment → business reporting → validation → outputs).
-- Outputs: `metrics/*.json`, `reports/*.pdf`, `transforms/AT12/procesados/*.txt`, logs.
+- Outputs: `metrics/*.json`, `transforms/AT12/procesados/*.txt`, logs.

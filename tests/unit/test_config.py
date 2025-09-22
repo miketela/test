@@ -18,7 +18,6 @@ class TestConfig:
             "data_raw_dir": "data/raw",
             "data_processed_dir": "data/processed",
             "metrics_dir": "metrics",
-            "reports_dir": "reports",
             "logs_dir": "logs",
             "schemas_dir": "schemas",
             "log_level": "INFO",
@@ -35,7 +34,6 @@ class TestConfig:
         assert config.data_raw_dir.endswith("data/raw")
         assert config.data_processed_dir.endswith("data/processed")
         assert config.metrics_dir.endswith("metrics")
-        assert config.reports_dir.endswith("reports")
         assert config.logs_dir.endswith("logs")
         assert config.schemas_dir.endswith("schemas")
         assert config.log_level == "INFO"
@@ -74,7 +72,6 @@ class TestConfig:
             "data_raw_dir": "data/raw",
             "data_processed_dir": "data/processed",
             "metrics_dir": "metrics",
-            "reports_dir": "reports",
             "logs_dir": "logs",
             "schemas_dir": "schemas"
             # Missing log_level and log_format
@@ -90,9 +87,9 @@ class TestConfig:
         assert hasattr(config, 'data_raw_dir')
         assert hasattr(config, 'data_processed_dir')
     
+    @patch('builtins.open', new_callable=mock_open, read_data='{"data_raw_dir": "test", "data_processed_dir": "test", "metrics_dir": "test", "logs_dir": "test", "schemas_dir": "test"}')
     @patch('pathlib.Path.exists', return_value=True)
-    @patch('builtins.open', new_callable=mock_open, read_data='{"data_raw_dir": "test", "data_processed_dir": "test", "metrics_dir": "test", "reports_dir": "test", "logs_dir": "test", "schemas_dir": "test"}')
-    def test_config_with_mocked_file(self, mock_file, mock_exists):
+    def test_config_with_mocked_file(self, mock_exists, mock_file):
         """Test Config with mocked file operations."""
         # This test should now work with all required fields
         config = Config("mocked_config.json")

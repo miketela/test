@@ -27,7 +27,6 @@ def sample_config(temp_dir):
         "data_raw_dir": str(temp_dir / "data" / "raw"),
         "data_processed_dir": str(temp_dir / "data" / "processed"),
         "metrics_dir": str(temp_dir / "metrics"),
-        "reports_dir": str(temp_dir / "reports"),
         "logs_dir": str(temp_dir / "logs"),
         "schemas_dir": "schemas",
         "log_level": "INFO",

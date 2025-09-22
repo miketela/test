@@ -23,7 +23,6 @@
    - `io.py` (strict CSV read/write, chunking)
    - `fs.py` (copy, checksum, versioning)
    - `time_utils.py` (period resolution, dates)
-   - `reports.py` (PDF report generation)
    - `log.py` (console + structured audit logs)
    - `metrics.py` (exploration metrics computation)
    - `naming.py` (UPPERCASE normalization, parse `[SUBTYPE]_[YYYYMMDD]`, header normalization)
@@ -68,8 +67,6 @@ repo/
 │     └─ *.csv (archivos copiados con versionado)
 ├─ metrics/
 │  └─ exploration_metrics_*.json
-├─ reports/
-│  └─ exploration_*.pdf
 └─ logs/
    └─ *.log
 ```
@@ -152,7 +149,6 @@ The header mapping system provides intelligent header transformation with specia
     │         Outputs:                │
     │ • data/raw/*.csv (versioned)    │
     │ • metrics/*.json               │
-    │ • reports/*.pdf                │
     │ • logs/*.log                   │
     └─────────────────────────────────┘
 ```
@@ -171,13 +167,13 @@ The header mapping system provides intelligent header transformation with specia
 7. Copy to `data/raw` with run versioning (e.g., `filename__run-YYYYMM.csv`).
 8. Compute metrics and validate mapped headers against `schema_headers.json`.
 9. Generate mapping reports for audit trail.
-10. Write `metrics/*.json`, `logs/*.log`, **Exploration PDF**.
+10. Write `metrics/*.json` and `logs/*.log` (PDF export removed).
 
 **Transformation**
 1. Verify preconditions (missing ⇒ fail).
 2. Normalize headers; reorder columns (if schema exists).
 3. Apply join/order/derived rules (pending).
-4. Write **consolidated TXT** and **Transformation PDF**.
+4. Write **consolidated TXT** (no PDF summary).
 
 ## Key Interfaces
 - **CLI**

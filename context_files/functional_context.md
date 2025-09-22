@@ -6,9 +6,9 @@ Build a **modular, scalable, and auditable** monthly pipeline for SBP regulatory
 ## Objectives
 - Run monthly (default: **previous month**).
 - Auto-discover inputs directly in `source/` directory.
-- Produce two business artifacts per run:
-  - **Exploration PDF** (metrics + checklist).
-  - **Transformation PDF** (summary of rules applied + outputs).
+- Generate machine-readable artifacts per run (PDF removed to reduce noise):
+  - Exploration metrics (`metrics/*.json`), manifests, and logs for auditability.
+  - Transformation outputs under `transforms/AT12/` (incidencias, consolidated TXT, follow-up Excel).
 - Maintain strong **traceability** and **auditability** (logs, manifests, checksums).
 - Keep the architecture ready for a **future UI**.
 
@@ -67,15 +67,15 @@ The system includes an advanced header mapping and normalization engine:
   - string lengths, file size, mtime, **SHA256**,
   - (if headers schema available) presence/order check.
 - Outputs:
-  - **Exploration PDF** (cover, executive summary, per-file “cards”).
-  - `metrics/*.csv|json`, `logs/run.json`, `logs/manifest.json`, `logs/events.jsonl`.
+  - `metrics/*.csv|json`
+  - `logs/run.json`, `logs/manifest.json`, `logs/events.jsonl` (PDF export removed)
 
 ### 2) Transformation
 - **Precondition:** all required subtypes present for the processed month.
 - Apply minimal normalizations (headers) and the defined rules (details pending).
 - Outputs:
   - **One consolidated TXT** per month: `AT12_CONSOLIDATED_<YYYYMM>__run-<run_id>.TXT` (exact layout pending).
-  - **Transformation PDF** (steps applied, row counts, discards/joins).
+  - Incidence CSVs and Excel follow-up artifacts under `transforms/AT12/` (no PDF summary).
 
 ## Traceability & Audit
 - **Console:** INFO by default; `--verbose` enables DEBUG.

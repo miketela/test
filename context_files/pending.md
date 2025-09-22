@@ -4,7 +4,7 @@
 - ✅ Implementación completa del flujo `explore` para AT12
 - ✅ Soporte dual para archivos CSV y XLSX
 - ✅ Suite de pruebas completa (70 passed, 2 skipped)
-- ✅ Generación de reportes PDF con estadísticas detalladas
+- ✅ Métricas de exploración en JSON (PDF dedicado retirado)
 - ✅ Versionado de archivos con run_id
 - ✅ Métricas de calidad de datos en formato JSON
 
@@ -40,7 +40,7 @@
 - Align whether **order** is strict (`order_strict: true`) for all subtypes.
 
 ### 5) Security & PII
-- Currently **no masking** in PDFs and logs.
+- Currently **no masking** in metrics and logs.
 - Review with compliance whether masking (e.g., last 4 digits) is required before production.
 - Define folder **permissions** (OS/ACLs) and backup handling.
 

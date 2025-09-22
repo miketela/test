@@ -41,7 +41,6 @@ sbp-atoms/
     *   **`metrics.py`**: `MetricsCalculator` que genera estadísticas detalladas sobre la calidad de los datos de un archivo.
     *   **`naming.py`**: `FilenameParser` que valida y extrae información de los nombres de archivo según las convenciones regulatorias (ej. `BASE_AT12_20240131.CSV`) y normalización de headers.
     *   **`header_mapping.py`**: Sistema avanzado de mapeo de headers con soporte para AT02_CUENTAS y normalización automática.
-    *   **`reports.py`**: `PDFReportGenerator` que utiliza `reportlab` para crear reportes en PDF a partir de los resultados del análisis.
     *   **`time_utils.py`**: Funciones para resolver y formatear períodos de tiempo (ej. `202401`).
 
 3.  **Procesador AT12 (`src/AT12/processor.py`):**
@@ -54,15 +53,7 @@ sbp-atoms/
         4.  **Análisis:** Emplea `metrics.MetricsCalculator` para generar un archivo JSON con métricas detalladas del proceso.
     *   **Método `transform`**: (Pendiente de implementación) Contendrá la lógica para transformar y consolidar los datos del átomo.
 
-4.  **Generación de Reportes (`src/core/reports.py`):**
-    *   La función `create_exploration_report` orquesta la creación del PDF.
-    *   `PDFReportGenerator` es una clase que construye el documento sección por sección:
-        *   **Página de Título:** Con el nombre del átomo, período y `run_id`.
-        *   **Resumen Ejecutivo:** Métricas clave como total de archivos, registros y puntaje de calidad.
-        *   **Análisis de Archivos:** Detalles de cada archivo procesado.
-        *   **Calidad de Datos:** Gráficos (actualmente mockeados) sobre la calidad de los datos.
-        *   **Análisis de Columnas:** Estadísticas por columna.
-        *   **Apéndice Técnico:** Información sobre el entorno de ejecución.
+
 
 ## 3. Sistema de Header Mapping ✅
 

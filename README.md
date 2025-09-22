@@ -17,7 +17,7 @@ The SBP Atoms Pipeline is a robust, auditable ETL system designed to process reg
 - **Header Mapping**: Advanced header normalization and mapping system with accent removal
 - **Validation**: Verify file structure, headers, and data integrity with intelligent mapping
 - **Copying/Versioning**: Create versioned copies with audit trails
-- **Analysis/Reporting**: Generate comprehensive metrics and PDF reports
+- **Analysis**: Generate comprehensive metrics and manifests (PDF export removed)
 - **Dual Format Support**: Handles both CSV and XLSX files automatically
 - **Quality Metrics**: Detailed data quality analysis and statistics
 - **AT02_CUENTAS Support**: Specialized handling for AT02_CUENTAS files with direct header replacement
@@ -83,7 +83,6 @@ sbp-atoms/
 ├── data/
 │   └── raw/           # Processed data with versioning
 ├── metrics/           # Analysis and metrics output
-├── reports/           # Generated PDF reports
 ├── logs/              # Application logs
 ├── tests/             # Comprehensive test suite
 │   ├── unit/          # Unit tests for individual components
@@ -103,7 +102,7 @@ sbp-atoms/
 
 ## Usage
 
-The main script `main.py` provides four commands: `explore`, `transform`, `report`, and `tui` (interactive UI).
+The main script `main.py` provides three commands: `explore`, `transform`, and `tui` (interactive UI).
 
 ### Exploration Phase
 
@@ -136,31 +135,16 @@ python main.py transform --atoms AT12 --year 2024 --month 1
 - `--year`: (Optional) The year to process.
 - `--month`: (Optional) The month to process.
 
-### Report Generation
-
-To generate a PDF report from a metrics file:
-
-```bash
-# Generate a report from a metrics JSON file
-python main.py report --metrics-file metrics/exploration_metrics_AT12_202401__run-202401.json
-```
-
-**Arguments:**
-- `--metrics-file`: (Required) Path to the metrics JSON file.
-- `--output`: (Optional) Path for the output PDF file.
-- `--title`: (Optional) A custom title for the report.
-- `--raw-data-dir`: (Optional) Path to the raw data directory for additional analysis.
-
 ### Interactive UI (TUI)
 
-Run the interactive terminal UI to explore, transform, and report with guided prompts, multi‑select, and search:
+Run the interactive terminal UI to explore and transform with guided prompts, multi‑select, and search:
 
 ```bash
 # Optional: ensure InquirerPy is installed for checkboxes/selects
 pip install InquirerPy
 
 # Launch the UI
-    python main.py tui
+python main.py tui
 ```
 
 Features:
@@ -168,100 +152,11 @@ Features:
   - Ahora incluye un submenú con opciones: “Seleccionar archivos”, “Refrescar listado” y “Volver al menú principal”.
   - El listado de archivos respeta `SBP_SOURCE_DIR` si está definido, y se refresca al volver a entrar o elegir “Refrescar listado”.
 - Transform: selecciona subtipos y archivos de `data/raw` para un run y ejecuta transform (usa una carpeta temporal como RAW_DIR).
-- Report: elige un JSON en `metrics/` y genera un PDF en `reports/`.
 - XLSX: puedes indicar la hoja (nombre o índice 0‑based) para el conteo en resúmenes.
 
 Notas:
 - Si InquirerPy no está instalado, la UI hace fallback a prompts básicos; con InquirerPy verás checkboxes y selects interactivos.
   - Tanto la versión básica como la interactiva incluyen “Volver al menú principal” en el flujo de Explore.
-
-#### Detailed Report Usage Guide
-
-**Understanding Report Sections:**
-
-1. **Análisis de Archivos**: Shows file-level information (size, rows, columns, headers)
-2. **Análisis de Calidad de Datos**: Shows data quality metrics (currently limited)
-3. **Análisis de Columnas**: Shows detailed column statistics (data types, null counts, unique values, etc.)
-
-**Why Data Quality Analysis May Appear Empty:**
-
-The "Análisis de Calidad de Datos" section may appear empty because:
-- The current `MetricsCalculator` doesn't generate `quality_metrics` in the JSON file
-- This section looks for specific quality metrics like completeness, accuracy, consistency scores
-- Only basic file and column metrics are currently calculated
-
-**Available Data in Reports:**
-- ✅ **File Analysis**: Complete file metadata and structure information
-- ✅ **Column Analysis**: Detailed statistics per column (nulls, unique values, data types, min/max values)
-- ⚠️ **Data Quality Analysis**: Limited (requires enhancement to MetricsCalculator)
-
-**To get comprehensive data quality metrics, you would need to:**
-1. Enhance the `MetricsCalculator` class in `src/core/metrics.py`
-2. Add quality score calculations (completeness, validity, consistency)
-3. Generate `quality_metrics` dictionary in the JSON output
-
-**Current Workaround:**
-Use the "Análisis de Columnas" section which provides:
-- Null count and percentage per column
-- Data type validation
-- Value distribution analysis
-- Min/max value ranges
-- Unique value counts
-
-#### Report Generation Examples
-
-**Basic Report Generation:**
-```bash
-# Generate report from exploration metrics
-python main.py report --metrics-file metrics/exploration_metrics_AT12_202401__run-202401.json
-```
-
-**Custom Output Location:**
-```bash
-# Specify custom output path
-python main.py report --metrics-file metrics/exploration_metrics_AT12_202401__run-202401.json --output reports/custom_report.pdf
-```
-
-**With Custom Title:**
-```bash
-# Add custom title to report
-python main.py report --metrics-file metrics/exploration_metrics_AT12_202401__run-202401.json --title "AT12 Analysis Report - January 2024"
-```
-
-#### Troubleshooting Reports
-
-**Common Issues:**
-
-1. **"Análisis de Calidad de Datos" section is empty**
-   - **Cause**: No `quality_metrics` generated in the metrics JSON
-   - **Solution**: This is expected behavior with current implementation
-   - **Alternative**: Check "Análisis de Columnas" for data quality insights
-
-2. **Report generation fails**
-   - **Cause**: Invalid metrics file path or corrupted JSON
-   - **Solution**: Verify the metrics file exists and contains valid JSON
-   ```bash
-   # Check if metrics file exists
-   ls -la metrics/exploration_metrics_AT12_202401__run-202401.json
-   
-   # Validate JSON format
-   python -m json.tool metrics/exploration_metrics_AT12_202401__run-202401.json
-   ```
-
-3. **Missing file information in reports**
-   - **Cause**: Files were not properly processed during exploration phase
-   - **Solution**: Re-run the exploration phase first
-   ```bash
-   python main.py explore --atoms AT12 --year 2024 --month 1
-   ```
-
-**Report Output Location:**
-- Default: `reports/exploration_metrics_[ATOM]_[PERIOD]__run-[RUN_ID]_report.pdf`
-- Custom: Use `--output` parameter to specify different location
-
-## Configuration
-
-The system uses environment variables and configuration files:
 
 ### File Processing
 - `INPUT_DELIMITER`: Input CSV delimiter (default: ',')
@@ -296,7 +191,6 @@ The system uses environment variables and configuration files:
 - Inconsistencia `Tarjeta_repetida` (solo CSV):
   - Detecta duplicados excluyendo `Numero_Prestamo` con prioridad de clave: (1) `Identificacion_cliente`,`Identificacion_Cuenta`,`Tipo_Facilidad`; si no, (2) `Id_Documento`,`Tipo_Facilidad`.
   - Exporta `data/processed/transforms/AT12/incidencias/INC_REPEATED_CARD_TDC_AT12_<PERIODO>.csv` con filas completas.
-- ✅ PDF report generation with detailed statistics
 - ✅ Comprehensive logging and audit trails
 - ✅ Dual format support (CSV + XLSX)
 - ✅ Complete test suite (70 tests passing)
@@ -333,7 +227,7 @@ python -m pytest tests/integration/ -v
 - **Unit Tests**: 60 tests covering all core components
 - **Integration Tests**: 10 tests covering complete workflows
 - **Success Rate**: 100% (70 passed, 2 skipped)
-- **Components Tested**: AT12 processor, I/O utilities, configuration, filesystem operations, PDF generation
+- **Components Tested**: AT12 processor, I/O utilities, configuration, filesystem operations
 
 ## Supported File Formats
 

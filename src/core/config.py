@@ -22,7 +22,6 @@ class Config:
     data_raw_dir: str = field(default_factory=lambda: os.getenv('SBP_DATA_RAW_DIR', 'data/raw'))
     data_processed_dir: str = field(default_factory=lambda: os.getenv('SBP_DATA_PROCESSED_DIR', 'data/processed'))
     metrics_dir: str = field(default_factory=lambda: os.getenv('SBP_METRICS_DIR', 'metrics'))
-    reports_dir: str = field(default_factory=lambda: os.getenv('SBP_REPORTS_DIR', 'reports'))
     logs_dir: str = field(default_factory=lambda: os.getenv('SBP_LOGS_DIR', 'logs'))
     schemas_dir: str = field(default_factory=lambda: os.getenv('SBP_SCHEMAS_DIR', 'schemas'))
     
@@ -60,7 +59,6 @@ class Config:
             self.data_raw_dir = os.getenv('SBP_DATA_RAW_DIR', 'data/raw')
             self.data_processed_dir = os.getenv('SBP_DATA_PROCESSED_DIR', 'data/processed')
             self.metrics_dir = os.getenv('SBP_METRICS_DIR', 'metrics')
-            self.reports_dir = os.getenv('SBP_REPORTS_DIR', 'reports')
             self.logs_dir = os.getenv('SBP_LOGS_DIR', 'logs')
             self.schemas_dir = os.getenv('SBP_SCHEMAS_DIR', 'schemas')
             self.max_workers = int(os.getenv('SBP_MAX_WORKERS', '4'))
@@ -100,7 +98,7 @@ class Config:
         # Required fields for tests
         required_fields = [
             'data_raw_dir', 'data_processed_dir', 'metrics_dir', 
-            'reports_dir', 'logs_dir', 'schemas_dir'
+            'logs_dir', 'schemas_dir'
         ]
         
         for field in required_fields:
@@ -114,7 +112,6 @@ class Config:
         self.data_raw_dir = config_data['data_raw_dir']
         self.data_processed_dir = config_data['data_processed_dir']
         self.metrics_dir = config_data['metrics_dir']
-        self.reports_dir = config_data['reports_dir']
         self.logs_dir = config_data['logs_dir']
         self.schemas_dir = config_data['schemas_dir']
         self.max_workers = config_data.get('max_workers', 4)
@@ -148,9 +145,6 @@ class Config:
         if not Path(self.metrics_dir).is_absolute():
             self.metrics_dir = str(base_path / self.metrics_dir)
         
-        if not Path(self.reports_dir).is_absolute():
-            self.reports_dir = str(base_path / self.reports_dir)
-        
         if not Path(self.logs_dir).is_absolute():
             self.logs_dir = str(base_path / self.logs_dir)
         
@@ -165,7 +159,6 @@ class Config:
             self.data_raw_dir,
             self.data_processed_dir,
             self.metrics_dir,
-            self.reports_dir,
             self.logs_dir,
             self.schemas_dir
         ]
@@ -186,7 +179,6 @@ class Config:
             'data_raw_dir': self.data_raw_dir,
             'data_processed_dir': self.data_processed_dir,
             'metrics_dir': self.metrics_dir,
-            'reports_dir': self.reports_dir,
             'logs_dir': self.logs_dir,
             'schemas_dir': self.schemas_dir,
             'max_workers': self.max_workers,
