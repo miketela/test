@@ -493,6 +493,9 @@ class AT12Processor:
                         csv_reader = self.file_reader.csv_reader
                         file_encoding = csv_reader._get_file_encoding(source_path)
                         sep = csv_reader._resolve_csv_delimiter(source_path, file_encoding)
+                        self.logger.info(
+                            f"{source_path.name}: detected delimiter={repr(sep)} encoding={file_encoding}"
+                        )
                         read_kwargs = {
                             'dtype': str,
                             'header': 0,
@@ -504,6 +507,9 @@ class AT12Processor:
                         }
                         try:
                             df = _pd.read_csv(source_path, **read_kwargs)
+                            self.logger.info(
+                                f"{source_path.name}: initial read shape={df.shape} columns={list(df.columns)[:5]}"
+                            )
                         except _pd.errors.ParserError:
                             fallback_kwargs = read_kwargs.copy()
                             fallback_kwargs['quoting'] = csv.QUOTE_NONE
@@ -511,9 +517,15 @@ class AT12Processor:
                             fallback_kwargs['on_bad_lines'] = 'warn'
                             fallback_kwargs.pop('quotechar', None)
                             df = _pd.read_csv(source_path, **fallback_kwargs)
+                            self.logger.info(
+                                f"{source_path.name}: fallback read shape={df.shape} columns={list(df.columns)[:5]}"
+                            )
                     except Exception:
                         # Fallback to UTF-16 with whitespace
                         df = _pd.read_csv(source_path, dtype=str, header=0, sep=r'\s+', engine='python', keep_default_na=False, encoding='utf-16')
+                        self.logger.info(
+                            f"{source_path.name}: utf-16 fallback shape={df.shape} columns={list(df.columns)[:5]}"
+                        )
                     # Standardize columns to schema and enforce dot decimals before saving to RAW CSV
                     try:
                         # Parse subtype from filename
@@ -555,6 +567,9 @@ class AT12Processor:
                             csv_reader = self.file_reader.csv_reader
                             file_encoding = csv_reader._get_file_encoding(source_path)
                             sep = csv_reader._resolve_csv_delimiter(source_path, file_encoding)
+                            self.logger.info(
+                                f"{source_path.name}: detected delimiter={repr(sep)} encoding={file_encoding}"
+                            )
                             read_kwargs = {
                                 'dtype': str,
                                 'header': 0,
@@ -566,6 +581,9 @@ class AT12Processor:
                             }
                             try:
                                 df = _pd.read_csv(source_path, **read_kwargs)
+                                self.logger.info(
+                                    f"{source_path.name}: initial read shape={df.shape} columns={list(df.columns)[:5]}"
+                                )
                             except _pd.errors.ParserError:
                                 fallback_kwargs = read_kwargs.copy()
                                 fallback_kwargs['quoting'] = csv.QUOTE_NONE
@@ -573,6 +591,9 @@ class AT12Processor:
                                 fallback_kwargs['on_bad_lines'] = 'warn'
                                 fallback_kwargs.pop('quotechar', None)
                                 df = _pd.read_csv(source_path, **fallback_kwargs)
+                                self.logger.info(
+                                    f"{source_path.name}: fallback read shape={df.shape} columns={list(df.columns)[:5]}"
+                                )
                             # Standardize columns to schema when possible
                             try:
                                 from ..core.header_mapping import HeaderMapper as _HM
