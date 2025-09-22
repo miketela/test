@@ -51,14 +51,36 @@ class AT12TransformationEngine(TransformationEngine):
                 raw = df[col].astype(str).str.strip()
 
                 def _normalize_amount(text: str) -> str:
+                    """Make a permissive numeric normalization for monetary strings.
+
+                    - Remove currency symbols and any non digit/sep char except sign.
+                    - Handle (x) as negative x.
+                    - If both '.' and ',' exist: assume '.' are thousands and ',' is decimal.
+                    - If only ',' exists: treat as decimal and replace with '.'.
+                    - Otherwise, keep '.' as decimal.
+                    """
+                    import re as _re
                     if text is None:
                         return ''
-                    val = text.replace(' ', '')
+                    val = str(text).strip()
+                    if val == '':
+                        return ''
+                    neg = False
+                    if '(' in val and ')' in val:
+                        neg = True
+                    # Remove spaces and any non-numeric/sep characters (keep digits, comma, dot, minus)
+                    val = val.replace(' ', '')
+                    val = _re.sub(r"[^0-9,\.\-]", "", val)
+                    # Normalize separators
                     if val.count(',') > 0 and val.count('.') > 0:
-                        return val.replace('.', '').replace(',', '.')
-                    if val.count(',') > 0:
-                        return val.replace(',', '.')
-                    return val.replace(',', '')
+                        # assume '.' as thousands sep
+                        val = val.replace('.', '').replace(',', '.')
+                    elif val.count(',') > 0:
+                        val = val.replace(',', '.')
+                    # Apply sign if needed
+                    if neg and val and not val.startswith('-'):
+                        val = '-' + val
+                    return val
 
                 normalized = raw.map(_normalize_amount)
                 df[col + '__num'] = pd.to_numeric(normalized, errors='coerce')
@@ -174,7 +196,7 @@ class AT12TransformationEngine(TransformationEngine):
         df.loc[mask, 'Clave_Empresa'] = '24'
         df.loc[mask, 'Clave_Tipo_Garantia'] = '3'
         df.loc[mask, 'Clave_Subtipo_Garantia'] = '61'
-        df.loc[mask, 'Clave_Tipo_Pren_Hipo'] = '0'
+        df.loc[mask, 'Clave_Tipo_Pren_Hipo'] = 'NA'
         df.loc[mask, 'Tipo_Instrumento'] = 'NA'
         df.loc[mask, 'Tipo_Poliza'] = 'NA'
         df.loc[mask, 'Status_Garantia'] = '0'
@@ -1168,11 +1190,26 @@ class AT12TransformationEngine(TransformationEngine):
         df = self._enrich_valores_0507(df)
 
         # Step 5: Importe = Valor_Garantia; format monetary columns with dot decimal
+        # Only overwrite where numeric parse succeeded; otherwise preserve original value
         for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado'):
             num_col = col + '__num'
             if num_col in df.columns:
                 target_name = 'Valor_Garantia' if col in ('Valor_Garantia', 'Valor_Garantía') else col
-                df[target_name] = self._format_money_dot(df[num_col])
+                try:
+                    mask_ok = df[num_col].notna()
+                    if mask_ok.any():
+                        df.loc[mask_ok, target_name] = self._format_money_dot(df.loc[mask_ok, num_col])
+                    # Fallback: for rows without numeric value, keep original but force dot decimal
+                    if (~mask_ok).any() and target_name in df.columns:
+                        df.loc[~mask_ok, target_name] = (
+                            df.loc[~mask_ok, target_name].astype(str).str.replace(',', '.', regex=False)
+                        )
+                except Exception:
+                    # As a last resort, simple comma→dot
+                    try:
+                        df[target_name] = df[target_name].astype(str).str.replace(',', '.', regex=False)
+                    except Exception:
+                        pass
 
         valor_num_series = None
         if 'Valor_Garantia__num' in df.columns:
@@ -1181,9 +1218,23 @@ class AT12TransformationEngine(TransformationEngine):
             valor_num_series = df['Valor_Garantía__num']
 
         if valor_num_series is not None:
-            df['Importe'] = self._format_money_dot(valor_num_series)
-            if 'Importe__num' in df.columns:
-                df['Importe__num'] = valor_num_series
+            try:
+                mask_ok = valor_num_series.notna()
+                if mask_ok.any():
+                    df.loc[mask_ok, 'Importe'] = self._format_money_dot(valor_num_series[mask_ok])
+                # Fallback for rows without numeric parse: copy Valor_Garantia textual (comma→dot)
+                if (~mask_ok).any():
+                    df.loc[~mask_ok, 'Importe'] = (
+                        df.loc[~mask_ok, 'Valor_Garantia'].astype(str).str.replace(',', '.', regex=False)
+                    )
+                if 'Importe__num' in df.columns:
+                    df.loc[mask_ok, 'Importe__num'] = valor_num_series[mask_ok]
+            except Exception:
+                # Fallback to simple textual replacement
+                try:
+                    df['Importe'] = df.get('Valor_Garantia', df.get('Valor_Garantía', '')).astype(str).str.replace(',', '.', regex=False)
+                except Exception:
+                    pass
         elif 'Importe__num' in df.columns:
             df['Importe'] = self._format_money_dot(df['Importe__num'])
 
@@ -1731,7 +1782,7 @@ class AT12TransformationEngine(TransformationEngine):
         df.loc[mask, 'Clave_Empresa'] = '24'
         df.loc[mask, 'Clave_Tipo_Garantia'] = '3'
         df.loc[mask, 'Clave_Subtipo_Garantia'] = '61'
-        df.loc[mask, 'Clave_Tipo_Pren_Hipo'] = '0'
+        df.loc[mask, 'Clave_Tipo_Pren_Hipo'] = 'NA'
         df.loc[mask, 'Tipo_Instrumento'] = 'NA'
         df.loc[mask, 'Tipo_Poliza'] = 'NA'
         df.loc[mask, 'Status_Garantia'] = '0'

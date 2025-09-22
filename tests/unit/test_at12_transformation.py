@@ -479,7 +479,7 @@ class TestAT12TransformationEngine:
             'Clave_Empresa': '24',
             'Clave_Tipo_Garantia': '3',
             'Clave_Subtipo_Garantia': '61',
-            'Clave_Tipo_Pren_Hipo': '0'
+            'Clave_Tipo_Pren_Hipo': 'NA'
         }
         for column, expected_value in expected_constants.items():
             assert set(processed[column]) == {expected_value}
