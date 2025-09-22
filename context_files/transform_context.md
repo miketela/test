@@ -358,7 +358,7 @@ These clarifications and rules are incorporated into the unified pipeline and ex
   - Incidences: `EXCLUDE_SOBREGIROS_BASE_<YYYYMMDD>.csv` with the removed rows.
 
 - BASE — Obsolete Trustee Code (Stage 1a):
-  - Rule: replace `Codigo_Fiduciaria=508` with `528`.
+  - Rule: replace `Id_Fiduciaria=508` with `528`.
   - Incidences: `FIDUCIARIA_CODE_UPDATE_<YYYYMMDD>.csv` with adjacent `Codigo_Fiduciaria_ORIGINAL`.
 
 - BASE — `Id_Documento` padding (last rule of Stage 1):

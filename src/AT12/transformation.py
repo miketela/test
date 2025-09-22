@@ -3062,24 +3062,24 @@ class AT12TransformationEngine(TransformationEngine):
     def _apply_codigo_fiduciaria_update(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "") -> pd.DataFrame:
         """3.3. Reemplazar código de fiduciaria obsoleto 508 -> 528 (solo BASE).
 
-        - Columnas objetivo: 'Codigo_Fiduciaria' si existe.
+        - Columnas objetivo: 'Id_Fiduciaria' si existe.
         - Exporta incidencias con valor original adyacente.
         """
         if df is None or df.empty:
             return df
         if subtype and str(subtype).upper() not in {"BASE_AT12", "BASE", "AT12_BASE"}:
             return df
-        if 'Codigo_Fiduciaria' not in df.columns:
+        if 'Id_Fiduciaria' not in df.columns:
             return df
 
-        series = df['Codigo_Fiduciaria'].astype(str).str.strip()
+        series = df['Id_Fiduciaria'].astype(str).str.strip()
         mask = series.eq('508')
         if mask.any():
             try:
-                original_columns = {'Codigo_Fiduciaria': df['Codigo_Fiduciaria'].copy()}
+                original_columns = {'Id_Fiduciaria': df['Id_Fiduciaria'].copy()}
             except Exception:
                 original_columns = None
-            df.loc[mask, 'Codigo_Fiduciaria'] = '528'
+            df.loc[mask, 'Id_Fiduciaria'] = '528'
             try:
                 self._export_error_subset(df, mask, 'BASE_AT12', 'FIDUCIARIA_CODE_UPDATE', context, None, original_columns=original_columns)
             except Exception:
