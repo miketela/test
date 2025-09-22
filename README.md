@@ -178,6 +178,17 @@ Notas:
 - ✅ File discovery and validation
 - ✅ Metrics calculation and reporting
 
+## Ingest Best Practices
+
+To keep the exploration/transformation stages happy, please stick to these conventions when preparing source drops:
+
+- **Naming:** Uppercase pattern `[SUBTIPO]_[YYYYMMDD].EXT` (e.g., `VALORES_AT12_20250831.txt`). Keep one VALORES file per periodo, and avoid stray versions with lowercase or extra suffixes.
+- **Preferred delimiters:** Use `|` or `;` for CSV. For TXT exported from Excel, pick `Unicode Text (*.txt)` so the file comes out as UTF‑16 **tab**-delimited. Avoid space-delimited exports—they fragment text columns like `Nombre_Fiduciaria` or `Id_Documento` and force heavy clean-up.
+- **Encoding:** CSV → UTF-8 (no BOM). TXT from Excel → UTF‑16 LE (Excel’s default for Unicode Text). Do not mix encodings inside the same batch.
+- **Quoted fields:** Any column that can contain spaces (e.g., organization or documento descriptions) should be wrapped in quotes when using CSV. Tabs already protect those values.
+- **Single header row:** Make sure only one header line is present and it matches the schema column names (see `schemas/AT12/schema_headers.json`). Drop Excel titles, totals, or blank lines before saving.
+- **One delimiter per file:** If you must convert between TXT and CSV, regenerate the file rather than editing by hand. Mixed delimiters are the number-one cause of ingest failures.
+
 ## AT12 Transformation Highlights (TDC updates)
 
 - TDC Número_Garantía (por run):

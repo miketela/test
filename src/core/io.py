@@ -519,7 +519,7 @@ class StrictCSVReader(BaseFileReader):
         if not getattr(self, 'auto_detect_delimiter', False):
             return self.delimiter
         try:
-            # Read a few non-empty lines
+            # Read a few non-empty lines for delimiter inference
             text = ''
             with open(file_path, 'r', encoding=file_encoding or self._get_file_encoding(file_path), newline='') as f:
                 lines = []
@@ -530,21 +530,36 @@ class StrictCSVReader(BaseFileReader):
                     if line.strip():
                         lines.append(line)
                 text = ''.join(lines)
+
             if text:
-                # Try Sniffer
+                candidates = getattr(self, 'delimiter_candidates', [',', ';', '|', '\t', ' '])
+                # First prefer explicit delimiters (ignore space) based on raw frequency
+                explicit_candidates = [c for c in candidates if c != ' ']
+                counts = {}
+                for cand in explicit_candidates:
+                    occurrences = text.count(cand)
+                    if occurrences > 0:
+                        counts[cand] = occurrences
+
+                if counts:
+                    # Pick the delimiter with most occurrences
+                    best_candidate = max(counts.items(), key=lambda kv: kv[1])[0]
+                    return best_candidate
+
+                # Fallback to Sniffer (includes whitespace if explicitly observed)
                 try:
-                    sniff = csv.Sniffer().sniff(text, delimiters=''.join(getattr(self, 'delimiter_candidates', [',',';','|','\t'])))
-                    if sniff and getattr(sniff, 'delimiter', None) in getattr(self, 'delimiter_candidates', [',',';','|','\t']):
+                    sniff = csv.Sniffer().sniff(text, delimiters=''.join(candidates))
+                    if sniff and getattr(sniff, 'delimiter', None) in candidates:
+                        # If sniffer guesses space but raw text contains tabs, prefer tab
+                        if sniff.delimiter == ' ' and '\t' in candidates and '\t' in text:
+                            return '\t'
                         return sniff.delimiter
                 except Exception:
                     pass
-                # Heuristic: count candidates in header
-                header = text.splitlines()[0] if text else ''
-                candidates = getattr(self, 'delimiter_candidates', [',',';','|','\t'])
-                counts = {d: header.count(d) for d in candidates}
-                best = max(counts.items(), key=lambda kv: kv[1])
-                if best[1] > 0:
-                    return best[0]
+
+                # As ultimate fallback, look for space delimiter occurrences
+                if ' ' in candidates and text.count(' ') > 0:
+                    return ' '
         except Exception:
             pass
         return self.delimiter
