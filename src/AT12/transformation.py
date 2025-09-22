@@ -1062,19 +1062,45 @@ class AT12TransformationEngine(TransformationEngine):
 
         available_sets: List[set] = []
         missing_sources: List[str] = []
+        
+        # Helper: pick best candidate column for account number in AT03
+        def _pick_numcta_column(at03_df: pd.DataFrame) -> Optional[str]:
+            try:
+                from src.core.naming import HeaderNormalizer as _HN
+                norm_map = {c: _HN.normalize_headers([c])[0].upper() for c in at03_df.columns}
+            except Exception:
+                norm_map = {c: str(c).upper() for c in at03_df.columns}
+            candidates = {
+                'NUM_CTA', 'NUMCTA', 'NUMERO_CUENTA', 'NUM_CUENTA', 'NUMERO_PRESTAMO', 'NUM_PRESTAMO',
+                'NUMERO_PRESTAMO_TDC', 'NUM_PRESTAMO_TDC', 'NUM_PREST', 'NUMCTATDC', 'NUM_CTA_TDC'
+            }
+            for original, norm in norm_map.items():
+                if norm in candidates:
+                    return original
+            # Fallback to exact 'num_cta' if present
+            if 'num_cta' in at03_df.columns:
+                return 'num_cta'
+            return None
+
+        # Helper: normalize join keys to last 10 digits after stripping
+        def _normalize_join_key10(series: pd.Series) -> pd.Series:
+            try:
+                s = series.astype(str).str.replace(r"\D", "", regex=True).str.lstrip('0')
+                s = s.map(lambda x: (x[-10:] if len(x) > 10 else x))
+                return s.where(s != '', '0')
+            except Exception:
+                return series.astype(str)
 
         for key in candidate_keys:
             if key not in source_data or source_data[key].empty:
                 missing_sources.append(key)
                 continue
             at03_df = source_data[key]
-            if 'num_cta' not in at03_df.columns:
-                self.logger.warning(f"FACILIDAD_FROM_AT03 skipped: num_cta not found in {key}")
+            numcol = _pick_numcta_column(at03_df)
+            if not numcol or numcol not in at03_df.columns:
+                self.logger.warning(f"FACILIDAD_FROM_AT03 skipped: account column not found in {key}")
                 continue
-            try:
-                normalized = self._normalize_join_key(at03_df['num_cta'])
-            except Exception:
-                normalized = at03_df['num_cta'].astype(str)
+            normalized = _normalize_join_key10(at03_df[numcol])
             available_sets.append(set(normalized.dropna().astype(str).tolist()))
 
         if missing_sources:
@@ -1104,20 +1130,29 @@ class AT12TransformationEngine(TransformationEngine):
             return df
 
         # Normalize keys
-        try:
-            left_keys = self._normalize_join_key(df[loan_col])
-        except Exception:
-            left_keys = df[loan_col].astype(str)
-        left_keys = left_keys.astype(str)
+        left_keys = _normalize_join_key10(df[loan_col])
 
-        # Determine presence across all available datasets
-        present_mask = pd.Series(True, index=df.index)
+        # Determine presence across all available datasets (intersection by default)
+        import pandas as _pd
+        present_mask = _pd.Series(True, index=df.index)
+        any_mask = _pd.Series(False, index=df.index)
         for key_set in available_sets:
-            present_mask &= left_keys.isin(key_set)
+            isin = left_keys.isin(key_set)
+            present_mask &= isin
+            any_mask |= isin
 
         # Build proposed values Series aligned to df
-        import pandas as _pd
         new_vals = _pd.Series(_pd.NA, index=df.index, dtype=object)
+        # If intersection finds no matches but union finds some, fall back to union
+        if int(present_mask.sum()) == 0 and int(any_mask.sum()) > 0:
+            try:
+                self.logger.warning(
+                    f"FACILIDAD_FROM_AT03 ({subtype}): no intersection matches across sources; "
+                    f"falling back to union criteria"
+                )
+            except Exception:
+                pass
+            present_mask = any_mask
         new_vals.loc[present_mask] = '01'
         new_vals.loc[~present_mask] = '02'
 
