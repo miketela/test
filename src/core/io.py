@@ -413,16 +413,30 @@ class StrictCSVReader(BaseFileReader):
         file_encoding = self._get_file_encoding(file_path)
         delim = self._resolve_csv_delimiter(file_path, file_encoding)
         
+        read_kwargs = {
+            'encoding': file_encoding,
+            'dtype': str,
+            'keep_default_na': False,
+            'nrows': sample_size
+        }
+
+        if delim == ' ':
+            # Treat space as flexible whitespace separator
+            read_kwargs.update({'sep': r'\s+', 'engine': 'python'})
+        else:
+            read_kwargs.update({'sep': delim, 'engine': 'c', 'quotechar': self.quotechar})
+
         try:
-            return pd.read_csv(
-                file_path,
-                delimiter=delim,
-                encoding=file_encoding,
-                quotechar=self.quotechar,
-                dtype=str,
-                keep_default_na=False,
-                nrows=sample_size
-            )
+            return pd.read_csv(file_path, **read_kwargs)
+        except pd.errors.ParserError:
+            fallback_kwargs = read_kwargs.copy()
+            fallback_kwargs['engine'] = 'python'
+            fallback_kwargs['quoting'] = csv.QUOTE_NONE
+            fallback_kwargs['escapechar'] = '\\'
+            fallback_kwargs['on_bad_lines'] = 'warn'
+            # Quote handling conflicts with QUOTE_NONE
+            fallback_kwargs.pop('quotechar', None)
+            return pd.read_csv(file_path, **fallback_kwargs)
         except UnicodeDecodeError:
             # Try fallback encodings if auto-detection is enabled
             if self.auto_detect_encoding and self.encoding is None:
@@ -430,20 +444,16 @@ class StrictCSVReader(BaseFileReader):
                 for fallback_encoding in fallback_encodings:
                     if fallback_encoding != file_encoding:
                         try:
-                            return pd.read_csv(
-                                file_path,
-                                delimiter=delim,
-                                encoding=fallback_encoding,
-                                quotechar=self.quotechar,
-                                dtype=str,
-                                keep_default_na=False,
-                                nrows=sample_size
-                            )
+                            read_kwargs['encoding'] = fallback_encoding
+                            if 'quotechar' not in read_kwargs and delim != ' ':
+                                read_kwargs['quotechar'] = self.quotechar
+                            read_kwargs['engine'] = 'c' if delim != ' ' else 'python'
+                            return pd.read_csv(file_path, **read_kwargs)
                         except UnicodeDecodeError:
                             continue
             # Re-raise the original error if all fallbacks fail
             raise
-    
+
     def count_records(self, file_path: Path, **kwargs) -> int:
         """Count total number of records in CSV file (excluding header).
         
@@ -454,10 +464,12 @@ class StrictCSVReader(BaseFileReader):
             Number of data records
         """
         file_encoding = self._get_file_encoding(file_path)
-        
+        delim = self._resolve_csv_delimiter(file_path, file_encoding)
+
         try:
+            effective_delim = delim if delim else self.delimiter
             with open(file_path, 'r', encoding=file_encoding, newline='') as f:
-                reader = csv.reader(f, delimiter=delim, quotechar=self.quotechar)
+                reader = csv.reader(f, delimiter=effective_delim, quotechar=self.quotechar)
                 # Skip header
                 next(reader, None)
                 # Count remaining rows

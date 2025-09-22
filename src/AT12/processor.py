@@ -6,6 +6,7 @@ Handles exploration and transformation of AT12 regulatory atoms.
 
 import os
 import json
+import csv
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -492,10 +493,24 @@ class AT12Processor:
                         csv_reader = self.file_reader.csv_reader
                         file_encoding = csv_reader._get_file_encoding(source_path)
                         sep = csv_reader._resolve_csv_delimiter(source_path, file_encoding)
-                        if sep == ' ':
-                            df = _pd.read_csv(source_path, dtype=str, header=0, sep=r'\s+', engine='python', keep_default_na=False, encoding=file_encoding)
-                        else:
-                            df = _pd.read_csv(source_path, dtype=str, header=0, sep=sep, engine='python', keep_default_na=False, encoding=file_encoding)
+                        read_kwargs = {
+                            'dtype': str,
+                            'header': 0,
+                            'keep_default_na': False,
+                            'encoding': file_encoding,
+                            'engine': 'python',
+                            'quotechar': '"',
+                            'sep': r'\s+' if sep == ' ' else sep
+                        }
+                        try:
+                            df = _pd.read_csv(source_path, **read_kwargs)
+                        except _pd.errors.ParserError:
+                            fallback_kwargs = read_kwargs.copy()
+                            fallback_kwargs['quoting'] = csv.QUOTE_NONE
+                            fallback_kwargs['escapechar'] = '\\'
+                            fallback_kwargs['on_bad_lines'] = 'warn'
+                            fallback_kwargs.pop('quotechar', None)
+                            df = _pd.read_csv(source_path, **fallback_kwargs)
                     except Exception:
                         # Fallback to UTF-16 with whitespace
                         df = _pd.read_csv(source_path, dtype=str, header=0, sep=r'\s+', engine='python', keep_default_na=False, encoding='utf-16')
@@ -540,15 +555,24 @@ class AT12Processor:
                             csv_reader = self.file_reader.csv_reader
                             file_encoding = csv_reader._get_file_encoding(source_path)
                             sep = csv_reader._resolve_csv_delimiter(source_path, file_encoding)
-                            df = _pd.read_csv(
-                                source_path,
-                                dtype=str,
-                                header=0,
-                                sep=sep,
-                                engine='python',
-                                keep_default_na=False,
-                                encoding=file_encoding
-                            )
+                            read_kwargs = {
+                                'dtype': str,
+                                'header': 0,
+                                'sep': sep,
+                                'engine': 'python',
+                                'keep_default_na': False,
+                                'encoding': file_encoding,
+                                'quotechar': '"'
+                            }
+                            try:
+                                df = _pd.read_csv(source_path, **read_kwargs)
+                            except _pd.errors.ParserError:
+                                fallback_kwargs = read_kwargs.copy()
+                                fallback_kwargs['quoting'] = csv.QUOTE_NONE
+                                fallback_kwargs['escapechar'] = '\\'
+                                fallback_kwargs['on_bad_lines'] = 'warn'
+                                fallback_kwargs.pop('quotechar', None)
+                                df = _pd.read_csv(source_path, **fallback_kwargs)
                             # Standardize columns to schema when possible
                             try:
                                 from ..core.header_mapping import HeaderMapper as _HM
