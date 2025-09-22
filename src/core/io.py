@@ -300,16 +300,17 @@ class StrictCSVReader(BaseFileReader):
                 keep_default_na=False  # Don't convert to NaN
             )
         except pd.errors.ParserError:
-            # Retry with python engine and tolerant bad line handling
+            # Retry with python engine, treating quotes as literal characters
             return pd.read_csv(
                 file_path,
                 delimiter=delim,
                 encoding=file_encoding,
-                quotechar=self.quotechar,
                 dtype=str,
                 keep_default_na=False,
                 engine='python',
-                on_bad_lines='warn'
+                on_bad_lines='warn',
+                quoting=csv.QUOTE_NONE,
+                escapechar='\\'
             )
         except UnicodeDecodeError:
             # Try fallback encodings if auto-detection is enabled
@@ -357,6 +358,23 @@ class StrictCSVReader(BaseFileReader):
             for chunk in chunk_reader:
                 yield chunk
                 
+        except pd.errors.ParserError:
+            chunk_reader = pd.read_csv(
+                file_path,
+                delimiter=delim,
+                encoding=file_encoding,
+                dtype=str,
+                keep_default_na=False,
+                chunksize=self.chunk_size,
+                engine='python',
+                on_bad_lines='warn',
+                quoting=csv.QUOTE_NONE,
+                escapechar='\\'
+            )
+
+            for chunk in chunk_reader:
+                yield chunk
+
         except UnicodeDecodeError:
             # Try fallback encodings if auto-detection is enabled
             if self.auto_detect_encoding and self.encoding is None:
