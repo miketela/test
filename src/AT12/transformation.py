@@ -33,16 +33,35 @@ class AT12TransformationEngine(TransformationEngine):
         if df is None or df.empty:
             return df
         df = df.copy()
-        # Trim object columns
+        # Trim object/string columns and normalize NA tokens
+        na_tokens = {"n/a", "na"}
         for col in df.columns:
-            if df[col].dtype == object:
-                df[col] = df[col].astype(str).str.strip()
+            if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+                original_nan_mask = df[col].isna()
+                series = df[col].astype(str).str.strip()
+                series = series.mask(original_nan_mask, '')
+                lowered = series.str.lower()
+                if lowered.isin(na_tokens).any():
+                    series = series.mask(lowered.isin(na_tokens), 'NA')
+                df[col] = series
         # Monetary fields
         money_cols = ['Valor_Inicial', 'Valor_Garantía', 'Valor_Garantia', 'Valor_Ponderado', 'Importe']
         for col in money_cols:
             if col in df.columns:
-                s = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                df[col + '__num'] = pd.to_numeric(s, errors='coerce')
+                raw = df[col].astype(str).str.strip()
+
+                def _normalize_amount(text: str) -> str:
+                    if text is None:
+                        return ''
+                    val = text.replace(' ', '')
+                    if val.count(',') > 0 and val.count('.') > 0:
+                        return val.replace('.', '').replace(',', '.')
+                    if val.count(',') > 0:
+                        return val.replace(',', '.')
+                    return val.replace(',', '')
+
+                normalized = raw.map(_normalize_amount)
+                df[col + '__num'] = pd.to_numeric(normalized, errors='coerce')
         return df
 
     def _normalize_tdc_keys(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -140,18 +159,15 @@ class AT12TransformationEngine(TransformationEngine):
         df.loc[mask, 'Tipo_Poliza'] = 'NA'
         df.loc[mask, 'Status_Garantia'] = '0'
         df.loc[mask, 'Status_Prestamo'] = '-1'
+        df.loc[mask, 'Calificacion_Emisor'] = 'NA'
+        df.loc[mask, 'Calificacion_Emisision'] = 'NA'
         # Derived
         if 'Numero_Cis_Garantia' in df.columns:
             df.loc[mask, 'Numero_Cis_Prestamo'] = df.loc[mask, 'Numero_Cis_Garantia']
         if 'Numero_Ruc_Garantia' in df.columns:
             df.loc[mask, 'Numero_Ruc_Prestamo'] = df.loc[mask, 'Numero_Ruc_Garantia']
         # Segmento rule: 02 -> PREMIRA, else PRE
-        try:
-            seg_mask = mask & (df.get('Tipo_Facilidad').astype(str) == '02')
-            df.loc[seg_mask, 'Segmento'] = 'PREMIRA'
-            df.loc[mask & ~seg_mask, 'Segmento'] = 'PRE'
-        except Exception:
-            pass
+        df.loc[mask, 'Segmento'] = 'PRE'
         # Importe = Valor_Garantia (use numeric internal if present)
         if 'Valor_Garantia__num' in df.columns:
             df.loc[mask, 'Importe__num'] = df.loc[mask, 'Valor_Garantia__num']
@@ -162,6 +178,24 @@ class AT12TransformationEngine(TransformationEngine):
     def _format_money_comma(self, s: pd.Series) -> pd.Series:
         """Format numeric series with comma decimal as string (no thousand sep)."""
         return s.map(lambda x: ('' if pd.isna(x) else f"{float(x):.2f}".replace('.', ',')))
+
+    def _format_money_dot(self, s: pd.Series) -> pd.Series:
+        """Format numeric series with dot decimal separator and no thousands separators."""
+        from decimal import Decimal, InvalidOperation
+
+        def _fmt(value: Any) -> str:
+            if pd.isna(value):
+                return ''
+            try:
+                dec = Decimal(str(value)).normalize()
+                text = format(dec, 'f')
+            except (InvalidOperation, ValueError):
+                return str(value)
+            if '.' in text:
+                text = text.rstrip('0').rstrip('.')
+            return text
+
+        return s.map(_fmt)
 
     def _get_expected_headers(self, context: TransformationContext, subtype: str) -> list:
         """Load expected headers for a subtype from schema_headers.json.
@@ -1031,21 +1065,47 @@ class AT12TransformationEngine(TransformationEngine):
         # Step 1: Keys normalization (Numero_Prestamo / Id_Documento)
         df = self._normalize_tdc_keys(df)
 
+        # Step 1b: Resolve Tipo_Facilidad from AT03 datasets (same rule as TDC/SOBREGIRO)
+        try:
+            df = self._ensure_tipo_facilidad_from_at03(df, 'VALORES_AT12', context, result, source_data)
+        except Exception as exc:
+            self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for VALORES due to error: {exc}")
+
         # Step 2: Generate Numero_Garantia (persistent, padded) for 0507
         df = self._generate_numero_garantia_valores(df, context)
 
         # Step 3: Enrichment & derived fields for 0507
         df = self._enrich_valores_0507(df)
 
-        # Step 4: Importe = Valor_Garantia; format monetarias con coma
-        for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'Importe'):
+        # Step 4: Importe = Valor_Garantia; format monetary columns with dot decimal
+        for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado'):
             num_col = col + '__num'
             if num_col in df.columns:
-                # Ensure we always write into the canonical (non-accented) column name
                 target_name = 'Valor_Garantia' if col in ('Valor_Garantia', 'Valor_Garantía') else col
-                df[target_name] = self._format_money_comma(df[num_col])
-        if 'Importe__num' in df.columns:
-            df['Importe'] = self._format_money_comma(df['Importe__num'])
+                df[target_name] = self._format_money_dot(df[num_col])
+
+        valor_num_series = None
+        if 'Valor_Garantia__num' in df.columns:
+            valor_num_series = df['Valor_Garantia__num']
+        elif 'Valor_Garantía__num' in df.columns:
+            valor_num_series = df['Valor_Garantía__num']
+
+        if valor_num_series is not None:
+            df['Importe'] = self._format_money_dot(valor_num_series)
+            if 'Importe__num' in df.columns:
+                df['Importe__num'] = valor_num_series
+        elif 'Importe__num' in df.columns:
+            df['Importe'] = self._format_money_dot(df['Importe__num'])
+
+        if 'Importe__num' in df.columns and valor_num_series is not None:
+            mismatch_mask = ~(df['Importe__num'].fillna(pd.NA).eq(valor_num_series.fillna(pd.NA)))
+            mismatch_mask &= ~(df['Importe__num'].isna() & valor_num_series.isna())
+            if mismatch_mask.any():
+                sample = df.loc[mismatch_mask, ['Numero_Prestamo', 'Id_Documento']].head(5).to_dict('records')
+                raise RuntimeError(
+                    "VALORES_AT12: Importe must equal Valor_Garantia for all rows. "
+                    f"Mismatch detected (examples: {sample})."
+                )
 
         # Step 5: Shape final output columns (transformado)
         expected_cols = [
@@ -1586,18 +1646,15 @@ class AT12TransformationEngine(TransformationEngine):
         df.loc[mask, 'Tipo_Poliza'] = 'NA'
         df.loc[mask, 'Status_Garantia'] = '0'
         df.loc[mask, 'Status_Prestamo'] = '-1'
+        df.loc[mask, 'Calificacion_Emisor'] = 'NA'
+        df.loc[mask, 'Calificacion_Emisision'] = 'NA'
         # Derived
         if 'Numero_Cis_Garantia' in df.columns:
             df.loc[mask, 'Numero_Cis_Prestamo'] = df.loc[mask, 'Numero_Cis_Garantia']
         if 'Numero_Ruc_Garantia' in df.columns:
             df.loc[mask, 'Numero_Ruc_Prestamo'] = df.loc[mask, 'Numero_Ruc_Garantia']
         # Segmento rule
-        try:
-            seg_mask = mask & (df.get('Tipo_Facilidad').astype(str) == '02')
-            df.loc[seg_mask, 'Segmento'] = 'PREMIRA'
-            df.loc[mask & ~seg_mask, 'Segmento'] = 'PRE'
-        except Exception:
-            pass
+        df.loc[mask, 'Segmento'] = 'PRE'
         # Importe = Valor_Garantia__num (done in caller formatting)
         if 'Valor_Garantia__num' in df.columns:
             df.loc[mask, 'Importe__num'] = df.loc[mask, 'Valor_Garantia__num']

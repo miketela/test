@@ -363,6 +363,119 @@ class TestAT12TransformationEngine:
             # Method exists but may not be fully implemented yet - this is acceptable
             pass
 
+    def test_process_valores_business_rules(self, engine, mock_paths, temp_dir):
+        """VALORES transformation must align with documented business rules."""
+        df = pd.DataFrame({
+            'Fecha': ['20240131', '20240131', '20240131'],
+            'Codigo_Banco': ['001', '001', '001'],
+            'Numero_Prestamo': ['123', '9876543210987654321', '444555'],
+            'Numero_Ruc_Garantia': ['11122233344', '55566677788', '99900011122'],
+            'Id_Fideicomiso': ['FID-A', 'FID-B', 'FID-C'],
+            'Nombre_Fiduciaria': ['Fiduciaria A', 'Fiduciaria B', 'Fiduciaria C'],
+            'Origen_Garantia': ['ORIG-A', 'ORIG-A', 'ORIG-B'],
+            'Tipo_Garantia': ['0507', '0507', '0507'],
+            'Tipo_Facilidad': ['99', '99', '99'],
+            'Id_Documento': [
+                'Linea Sobregiro de la cuenta 123',
+                '0000000005',
+                '4445550001'
+            ],
+            'Nombre_Organismo': ['ORG', 'ORG', 'ORG'],
+            'Valor_Inicial': ['10250,75', '5000.00', '2750'],
+            'Valor_Garantia': ['10250,75', '5000.00', '2750'],
+            'Valor_Ponderado': ['10250,75', '5000.00', '2750'],
+            'Tipo_Instrumento': ['n/a', 'n/a', 'n/a'],
+            'Calificacion_Emisor': ['n/a', 'NA', 'na'],
+            'Calificacion_Emisision': ['n/a', 'NA', 'n/a'],
+            'Pais_Emision': ['NA', 'NA', 'NA'],
+            'Fecha_Ultima_Actualizacion': ['20240115', '20240115', '20240115'],
+            'Fecha_Vencimiento': ['20250101', '20250101', '20250101'],
+            'Tipo_Poliza': ['01', 'n/a', 'NA'],
+            'Codigo_Region': ['0101', '0101', '0102'],
+            'Numero_Garantia': [None, None, None],
+            'Numero_Cis_Garantia': ['CIS1', 'CIS2', 'CIS3'],
+            'Moneda': ['PAB', 'PAB', 'PAB'],
+            'Importe': ['1', '1', '1'],
+            'Codigo_Origen': ['01', '01', '02']
+        })
+
+        context = MagicMock(spec=TransformationContext)
+        context.paths = mock_paths
+        context.period = '20240131'
+        context.config = MagicMock()
+        context.config.schemas_dir = None
+        context.config.base_dir = temp_dir
+        context.config.valores_sequence_start = 1000
+
+        result = TransformationResult(
+            success=True,
+            processed_files=[],
+            incidence_files=[],
+            consolidated_file=None,
+            metrics={},
+            errors=[],
+            warnings=[]
+        )
+
+        source_data = {
+            'AT03_CREDITOS': pd.DataFrame({'num_cta': ['123', '9876543210987654321']})
+        }
+
+        processed = engine._process_valores_data(df, context, result, source_data=source_data)
+
+        # Numero_Prestamo normalization & Id_Documento substitution
+        assert '0000000123' in processed['Numero_Prestamo'].values
+        assert processed.loc[processed['Numero_Prestamo'] == '0000000123', 'Id_Documento'].iloc[0] == '0000000123'
+        tipo_fac_map = dict(zip(processed['Numero_Prestamo'], processed['Tipo_Facilidad']))
+        assert tipo_fac_map['0000000123'] == '01'
+        assert tipo_fac_map['9876543210987654321'] == '01'
+        assert tipo_fac_map['0000444555'] == '02'
+
+        # Monetary rules with dot decimal and Importes equal Valor_Garantia
+        valor_map = dict(zip(processed['Numero_Prestamo'], processed['Valor_Garantia']))
+        importe_map = dict(zip(processed['Numero_Prestamo'], processed['Importe']))
+        assert valor_map['0000000123'] == '10250.75'
+        assert importe_map['0000000123'] == '10250.75'
+        assert valor_map['9876543210987654321'] == '5000'
+        assert importe_map['9876543210987654321'] == '5000'
+        assert valor_map['0000444555'] == '2750'
+        assert importe_map['0000444555'] == '2750'
+        assert all(',' not in value for value in processed['Importe'] if value)
+
+        # Classification constants and statuses
+        assert set(processed['Tipo_Instrumento']) == {'NA'}
+        assert set(processed['Tipo_Poliza']) == {'NA'}
+        assert set(processed['Calificacion_Emisor']) == {'NA'}
+        assert set(processed['Calificacion_Emisision']) == {'NA'}
+        assert set(processed['Status_Garantia']) == {'0'}
+        assert set(processed['Status_Prestamo']) == {'-1'}
+        assert set(processed['Segmento']) == {'PRE'}
+
+        expected_constants = {
+            'Clave_Pais': '24',
+            'Clave_Empresa': '24',
+            'Clave_Tipo_Garantia': '3',
+            'Clave_Subtipo_Garantia': '61',
+            'Clave_Tipo_Pren_Hipo': '0'
+        }
+        for column, expected_value in expected_constants.items():
+            assert set(processed[column]) == {expected_value}
+
+        # Numero_Garantia assigned and padded
+        assert processed['Numero_Garantia'].str.len().eq(10).all()
+        assert processed['Numero_Garantia'].is_unique
+
+        # Cross-field copies for CIS and RUC
+        pd.testing.assert_series_equal(
+            processed['Numero_Cis_Prestamo'], processed['Numero_Cis_Garantia'], check_names=False
+        )
+        pd.testing.assert_series_equal(
+            processed['Numero_Ruc_Prestamo'], processed['Numero_Ruc_Garantia'], check_names=False
+        )
+
+        # Importes must equal Valor_Garantia for numeric representation
+        assert processed['Importe'].equals(processed['Valor_Garantia'])
+
     def test_stage1_initial_cleansing(self, engine):
         """Test Stage 1: Initial Data Cleansing and Formatting."""
         # Test that the stage 1 method exists
