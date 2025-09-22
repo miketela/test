@@ -274,8 +274,11 @@ class TestFilenameParser:
         """Test FilenameParser initialization."""
         expected_subtypes = ["BASE_AT12", "TDC_AT12", "VALORES_AT12"]
         parser = FilenameParser(expected_subtypes)
-        
-        assert parser.expected_subtypes == expected_subtypes
+        for subtype in expected_subtypes:
+            assert subtype in parser.expected_subtypes
+        # Aliases should be registered automatically
+        assert 'GARANTIAS_AUTOS_AT12' in parser.expected_subtypes
+        assert parser.alias_map['GARANTIAS_AUTOS_AT12'] == 'GARANTIA_AUTOS_AT12'
     
     def test_normalize_filename(self):
         """Test filename normalization to uppercase."""
@@ -307,7 +310,17 @@ class TestFilenameParser:
         assert result.day == 31
         assert result.extension == "CSV"
         assert len(result.errors) == 0
-    
+
+    def test_parse_filename_with_alias(self):
+        """Ensure filename parser maps known aliases to canonical subtype."""
+        parser = FilenameParser(["GARANTIA_AUTOS_AT12"])
+        filename = "GARANTIAS_AUTOS_AT12_20250831.csv"
+        result = parser.parse_filename(filename)
+
+        assert result.is_valid is True
+        assert result.subtype == "GARANTIA_AUTOS_AT12"
+        assert result.date_str == "20250831"
+
     def test_parse_invalid_filename(self):
         """Test parsing invalid filenames."""
         expected_subtypes = ["BASE_AT12", "TDC_AT12"]

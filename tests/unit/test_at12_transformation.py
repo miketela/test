@@ -71,8 +71,9 @@ class TestAT12TransformationEngine:
         assert hasattr(engine, '_filename_parser')
         assert hasattr(engine, 'incidences_data')
         assert engine.atom_type == "AT12"
-        assert engine._filename_parser.expected_subtypes == ['TDC', 'SOBREGIRO', 'VALORES']
-    
+        expected = {'TDC', 'SOBREGIRO', 'VALORES'}
+        assert expected.issubset(set(engine._filename_parser.expected_subtypes))
+
     def test_filename_parser(self, engine):
         """Test filename parsing functionality."""
         # Test that the _filename_parser attribute exists
@@ -81,8 +82,10 @@ class TestAT12TransformationEngine:
         
         # Test that the filename parser has expected subtypes
         expected_subtypes = ['TDC', 'SOBREGIRO', 'VALORES']
-        assert engine._filename_parser.expected_subtypes == expected_subtypes
-    
+        for subtype in expected_subtypes:
+            assert subtype in engine._filename_parser.expected_subtypes
+        assert 'GARANTIAS_AUTOS_AT12' in engine._filename_parser.expected_subtypes
+
     def test_filename_parser_date_extraction(self, engine):
         """Test date extraction from filename using FilenameParser."""
         # Test that the _filename_parser exists and can be used for date extraction
@@ -92,7 +95,7 @@ class TestAT12TransformationEngine:
         # Test that the filename parser has the expected functionality
         # This is a basic test since we don't know the exact API
         assert hasattr(engine._filename_parser, 'expected_subtypes')
-        assert len(engine._filename_parser.expected_subtypes) == 3
+        assert all(subtype in engine._filename_parser.expected_subtypes for subtype in ['TDC', 'SOBREGIRO', 'VALORES'])
     
     def test_load_dataframe_functionality(self, engine):
         """Test DataFrame loading functionality through base class."""

@@ -30,14 +30,31 @@ class ParsedFilename:
 class FilenameParser:
     """Parser for AT12 filename patterns."""
     
-    def __init__(self, expected_subtypes: List[str]):
+    DEFAULT_ALIASES = {
+        'GARANTIAS_AUTOS_AT12': 'GARANTIA_AUTOS_AT12',
+    }
+
+    def __init__(self, expected_subtypes: List[str], aliases: Optional[Dict[str, str]] = None):
         """Initialize filename parser.
-        
+
         Args:
             expected_subtypes: List of expected subtype names
         """
-        self.expected_subtypes = [subtype.upper() for subtype in expected_subtypes]
-    
+        base_subtypes = [subtype.upper() for subtype in expected_subtypes]
+        alias_map = aliases or {}
+        alias_map = {alias.upper(): target.upper() for alias, target in alias_map.items()}
+        # merge with defaults (explicit aliases override defaults if provided)
+        for alias, target in self.DEFAULT_ALIASES.items():
+            alias_map.setdefault(alias.upper(), target.upper())
+
+        self.alias_map = alias_map
+
+        # include alias keys in expected list to make regex matching possible
+        self.expected_subtypes = base_subtypes.copy()
+        for alias in self.alias_map.keys():
+            if alias not in self.expected_subtypes:
+                self.expected_subtypes.append(alias)
+
     def normalize_filename(self, filename: str) -> str:
         """Normalize filename to uppercase.
         
@@ -97,10 +114,12 @@ class FilenameParser:
             errors.append(f"Invalid date format: {date_str}")
             date_obj = datetime.min
         
+        canonical_subtype = self.alias_map.get(subtype, subtype)
+
         return ParsedFilename(
             original_name=original_name,
             normalized_name=normalized_name,
-            subtype=subtype,
+            subtype=canonical_subtype,
             date_str=date_str,
             date=date_obj,
             year=date_obj.year if date_obj != datetime.min else 0,
