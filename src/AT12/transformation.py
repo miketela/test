@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Sequence, Union
 import pandas as pd
 from pathlib import Path
 import logging
@@ -62,6 +62,26 @@ class AT12TransformationEngine(TransformationEngine):
 
                 normalized = raw.map(_normalize_amount)
                 df[col + '__num'] = pd.to_numeric(normalized, errors='coerce')
+        return df
+
+    def _drop_blank_records(self, df: pd.DataFrame, subtype: str) -> pd.DataFrame:
+        """Remove rows that are entirely blank after trimming string columns."""
+        if df is None or df.empty:
+            return df
+
+        object_cols = df.select_dtypes(include=['object'])
+        if object_cols.empty:
+            return df
+
+        stripped = object_cols.fillna('').apply(lambda col: col.astype(str).str.strip())
+        empty_mask = stripped.eq('').all(axis=1)
+        if empty_mask.any():
+            count = int(empty_mask.sum())
+            try:
+                self.logger.info(f"{subtype}: dropping {count} blank row(s) prior to transformation")
+            except Exception:
+                pass
+            df = df.loc[~empty_mask].copy()
         return df
 
     def _normalize_tdc_keys(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -716,13 +736,19 @@ class AT12TransformationEngine(TransformationEngine):
 
         # Step 0: Ensure Tipo_Facilidad using AT03_TDC (required for TDC)
         has_at03_tdc = ('AT03_TDC' in source_data) and (not source_data['AT03_TDC'].empty)
-        if has_at03_tdc:
+        has_at03_creditos = ('AT03_CREDITOS' in source_data) and (not source_data['AT03_CREDITOS'].empty)
+        if has_at03_tdc and has_at03_creditos:
             df = self._ensure_tipo_facilidad_from_at03(
-                df, 'TDC_AT12', context, result, source_data,
-                at03_key='AT03_TDC', require=True
+                df,
+                'TDC_AT12',
+                context,
+                result,
+                source_data,
+                at03_key=['AT03_CREDITOS', 'AT03_TDC'],
+                require=True
             )
         else:
-            raise RuntimeError("AT03_TDC not available; required for FACILIDAD_FROM_AT03 in TDC_AT12")
+            raise RuntimeError("AT03_CREDITOS and AT03_TDC are required for FACILIDAD_FROM_AT03 in TDC_AT12")
 
         # Step 1: Generate Número_Garantía (in-process, no incidences)
         df = self._generate_numero_garantia_tdc(df, context)
@@ -751,14 +777,20 @@ class AT12TransformationEngine(TransformationEngine):
 
         # Step 0: Ensure Tipo_Facilidad from AT03_TDC (required)
         has_at03_tdc = ('AT03_TDC' in source_data) and (not source_data['AT03_TDC'].empty)
-        if has_at03_tdc:
+        has_at03_creditos = ('AT03_CREDITOS' in source_data) and (not source_data['AT03_CREDITOS'].empty)
+        if has_at03_tdc or has_at03_creditos:
             df = self._ensure_tipo_facilidad_from_at03(
-                df, 'TDC_AT12', context, result, source_data,
-                at03_key='AT03_TDC', require=False
+                df,
+                'TDC_AT12',
+                context,
+                result,
+                source_data,
+                at03_key=['AT03_CREDITOS', 'AT03_TDC'],
+                require=False
             )
         else:
-            # Legacy method: skip if AT03_TDC not present (tests may call without aux sources)
-            self.logger.info("AT03_TDC not available; skipping FACILIDAD_FROM_AT03 in legacy TDC path")
+            # Legacy method: skip if auxiliary sources not present (tests may call without aux sources)
+            self.logger.info("AT03_CREDITOS/TDC not available; skipping FACILIDAD_FROM_AT03 in legacy TDC path")
 
         # Step 1: Generate Número_Garantía (in-process, no incidences)
         df = self._generate_numero_garantia_tdc(df, context)
@@ -884,13 +916,22 @@ class AT12TransformationEngine(TransformationEngine):
             self.logger.warning(f"EEOR_TABULAR cleaning skipped for SOBREGIRO due to error: {e}")
         
         # Step 0: Ensure Tipo_Facilidad from AT03 (only if AT03 available)
-        if has_at03:
+        has_at03_tdc = ('AT03_TDC' in source_data) and (not source_data['AT03_TDC'].empty)
+        if has_at03 or has_at03_tdc:
             try:
-                df = self._ensure_tipo_facilidad_from_at03(df, 'SOBREGIRO_AT12', context, result, source_data)
+                df = self._ensure_tipo_facilidad_from_at03(
+                    df,
+                    'SOBREGIRO_AT12',
+                    context,
+                    result,
+                    source_data,
+                    at03_key=['AT03_CREDITOS', 'AT03_TDC'],
+                    require=False
+                )
             except Exception as e:
                 self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for SOBREGIRO due to error: {e}")
         else:
-            self.logger.info("Skipping FACILIDAD_FROM_AT03 for SOBREGIRO: AT03_CREDITOS not available")
+            self.logger.info("Skipping FACILIDAD_FROM_AT03 for SOBREGIRO: AT03_CREDITOS/TDC not available")
 
         # Light normalization (trim + monetarias)
         df = self._normalize_tdc_basic(df)
@@ -932,7 +973,15 @@ class AT12TransformationEngine(TransformationEngine):
         
         # Step 0: Ensure Tipo_Facilidad from AT03 (must run before any other step)
         try:
-            df = self._ensure_tipo_facilidad_from_at03(df, 'SOBREGIRO_AT12', context, result, source_data)
+            df = self._ensure_tipo_facilidad_from_at03(
+                df,
+                'SOBREGIRO_AT12',
+                context,
+                result,
+                source_data,
+                at03_key=['AT03_CREDITOS', 'AT03_TDC'],
+                require=False
+            )
         except Exception as e:
             self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for SOBREGIRO due to error: {e}")
 
@@ -961,26 +1010,62 @@ class AT12TransformationEngine(TransformationEngine):
         
         return df
 
-    def _ensure_tipo_facilidad_from_at03(self, df: pd.DataFrame, subtype: str, context: TransformationContext,
-                                         result: TransformationResult, source_data: Dict[str, pd.DataFrame],
-                                         at03_key: str = 'AT03_CREDITOS', require: bool = False) -> pd.DataFrame:
-        """Set Tipo_Facilidad based on presence of loan in AT03 dataset (configurable).
+    def _ensure_tipo_facilidad_from_at03(
+        self,
+        df: pd.DataFrame,
+        subtype: str,
+        context: TransformationContext,
+        result: TransformationResult,
+        source_data: Dict[str, pd.DataFrame],
+        at03_key: Union[str, Sequence[str]] = 'AT03_CREDITOS',
+        require: bool = False
+    ) -> pd.DataFrame:
+        """Set Tipo_Facilidad based on presence of loan in AT03 datasets.
 
         Rules:
-        - If Numero_Prestamo (normalized) exists in AT03.num_cta (normalized) → Tipo_Facilidad = '01'
-        - Else → '02'
+        - Normalizes Numero_Prestamo and compares with each provided AT03 `num_cta` column.
+        - When multiple datasets are supplied, a loan must exist in *all available* datasets to qualify as '01'.
+          Otherwise it is set to '02'.
         - Export CSV with changed rows only: FACILIDAD_FROM_AT03_[SUBTYPE]_[YYYYMMDD].csv, preserving all columns and
           adding Tipo_Facilidad_ORIGINAL next to Tipo_Facilidad.
         """
         if df is None or df.empty:
             return df
-        if at03_key not in source_data or source_data[at03_key].empty:
-            msg = f"{at03_key} not available; "
+
+        # Normalize key configuration
+        if isinstance(at03_key, (list, tuple, set)):
+            candidate_keys = list(at03_key)
+        else:
+            candidate_keys = [at03_key]
+
+        available_sets: List[set] = []
+        missing_sources: List[str] = []
+
+        for key in candidate_keys:
+            if key not in source_data or source_data[key].empty:
+                missing_sources.append(key)
+                continue
+            at03_df = source_data[key]
+            if 'num_cta' not in at03_df.columns:
+                self.logger.warning(f"FACILIDAD_FROM_AT03 skipped: num_cta not found in {key}")
+                continue
+            try:
+                normalized = self._normalize_join_key(at03_df['num_cta'])
+            except Exception:
+                normalized = at03_df['num_cta'].astype(str)
+            available_sets.append(set(normalized.dropna().astype(str).tolist()))
+
+        if missing_sources:
+            msg = ", ".join(missing_sources)
             if require:
-                raise RuntimeError(msg + f"required for FACILIDAD_FROM_AT03 in {subtype}")
-            else:
-                self.logger.info(msg + "skipping FACILIDAD_FROM_AT03")
-                return df
+                raise RuntimeError(f"{msg} not available; required for FACILIDAD_FROM_AT03 in {subtype}")
+            try:
+                self.logger.info(f"FACILIDAD_FROM_AT03 ({subtype}): skipping missing sources {msg}")
+            except Exception:
+                pass
+
+        if not available_sets:
+            return df
 
         # Resolve loan number column on DF (support accented variant for TDC)
         loan_col = None
@@ -996,24 +1081,18 @@ class AT12TransformationEngine(TransformationEngine):
             self.logger.warning("FACILIDAD_FROM_AT03 skipped: Tipo_Facilidad column not found")
             return df
 
-        at03 = source_data[at03_key]
-        if 'num_cta' not in at03.columns:
-            self.logger.warning(f"FACILIDAD_FROM_AT03 skipped: num_cta not found in {at03_key}")
-            return df
-
         # Normalize keys
         try:
             left_keys = self._normalize_join_key(df[loan_col])
         except Exception:
             left_keys = df[loan_col].astype(str)
-        try:
-            right_keys = self._normalize_join_key(at03['num_cta'])
-        except Exception:
-            right_keys = at03['num_cta'].astype(str)
+        left_keys = left_keys.astype(str)
 
-        at03_set = set(right_keys.dropna().astype(str).tolist())
-        # Determine new Tipo_Facilidad values
-        present_mask = left_keys.astype(str).isin(at03_set)
+        # Determine presence across all available datasets
+        present_mask = pd.Series(True, index=df.index)
+        for key_set in available_sets:
+            present_mask &= left_keys.isin(key_set)
+
         # Build proposed values Series aligned to df
         import pandas as _pd
         new_vals = _pd.Series(_pd.NA, index=df.index, dtype=object)
@@ -1059,25 +1138,36 @@ class AT12TransformationEngine(TransformationEngine):
         """Process VALORES_AT12 applying ETL rules for garantías 0507."""
         self.logger.info("Processing VALORES_AT12 data - Stage 2 (ETL 0507)")
 
-        # Step 0: Basic normalization (trim + money)
+        # Step 0: Remove blank rows before any normalization
+        df = self._drop_blank_records(df, 'VALORES_AT12')
+
+        # Step 1: Basic normalization (trim + money)
         df = self._normalize_tdc_basic(df)
 
-        # Step 1: Keys normalization (Numero_Prestamo / Id_Documento)
+        # Step 2: Keys normalization (Numero_Prestamo / Id_Documento)
         df = self._normalize_tdc_keys(df)
 
-        # Step 1b: Resolve Tipo_Facilidad from AT03 datasets (same rule as TDC/SOBREGIRO)
+        # Step 2b: Resolve Tipo_Facilidad from AT03 datasets (same rule as TDC/SOBREGIRO)
         try:
-            df = self._ensure_tipo_facilidad_from_at03(df, 'VALORES_AT12', context, result, source_data)
+            df = self._ensure_tipo_facilidad_from_at03(
+                df,
+                'VALORES_AT12',
+                context,
+                result,
+                source_data,
+                at03_key=['AT03_CREDITOS', 'AT03_TDC'],
+                require=False
+            )
         except Exception as exc:
             self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for VALORES due to error: {exc}")
 
-        # Step 2: Generate Numero_Garantia (persistent, padded) for 0507
+        # Step 3: Generate Numero_Garantia (persistent, padded) for 0507
         df = self._generate_numero_garantia_valores(df, context)
 
-        # Step 3: Enrichment & derived fields for 0507
+        # Step 4: Enrichment & derived fields for 0507
         df = self._enrich_valores_0507(df)
 
-        # Step 4: Importe = Valor_Garantia; format monetary columns with dot decimal
+        # Step 5: Importe = Valor_Garantia; format monetary columns with dot decimal
         for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado'):
             num_col = col + '__num'
             if num_col in df.columns:
@@ -1107,7 +1197,7 @@ class AT12TransformationEngine(TransformationEngine):
                     f"Mismatch detected (examples: {sample})."
                 )
 
-        # Step 5: Shape final output columns (transformado)
+        # Step 6: Shape final output columns (transformado)
         expected_cols = [
             'Fecha', 'Codigo_Banco', 'Numero_Prestamo', 'Numero_Ruc_Garantia', 'Id_Fideicomiso',
             'Nombre_Fiduciaria', 'Origen_Garantia', 'Tipo_Garantia', 'Tipo_Facilidad', 'Id_Documento',

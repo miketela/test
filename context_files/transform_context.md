@@ -234,7 +234,7 @@ Detailed Process (Logic):
 **2.3. `VALORES_AT12` (Securities) Generation**
 *   **Objective:** Build the final VALORES dataset with the regulatory layout, enforcing 0507-specific rules.
 *   **Detailed Process (Logic):**
-    1.  **Raw normalization:** Apply header normalization, trim strings, convert `n/a`/`na` → `NA`, and parse monetary columns tolerantly (supports comma or dot decimal formats). Helper columns `Valor_*__num` are created for numeric operations.
+    1.  **Raw normalization & blank-row guard:** Drop records where every field is empty/whitespace so phantom rows from Excel exports never propagate. Apply header normalization, trim strings, convert `n/a`/`na` → `NA`, and parse monetary columns tolerantly (supports comma or dot decimal formats). Helper columns `Valor_*__num` are created for numeric operations.
     2.  **Identifier standardization:**
         *   `Numero_Prestamo`: keep digits only; zero-pad to 10 when length <10, preserve longer alphanumeric IDs.
         *   `Id_Documento`: if the text matches `Linea Sobregiro de la cuenta {Numero_Prestamo}`, replace it with the normalized loan identifier; otherwise zero-pad the digits extracted from the source value.
@@ -242,7 +242,7 @@ Detailed Process (Logic):
     4.  **Numero_Garantia assignment:** Generate padded 10-digit numbers using the sequence registry. If TDC guarantees were assigned in the same run, start at `last_tdc + 500`; otherwise pull from the persistent registry (`valores_numero_garantia.json`). Each assignment is logged as `VALORES_NUMERO_GARANTIA_GENERATION`.
     5.  **Constants & derived fields:** Stamp `Clave_Pais=24`, `Clave_Empresa=24`, `Clave_Tipo_Garantia=3`, `Clave_Subtipo_Garantia=61`, `Clave_Tipo_Pren_Hipo=0`, `Tipo_Instrumento=NA`, `Tipo_Poliza=NA`, `Status_Garantia=0`, `Status_Prestamo=-1`, `Calificacion_Emisor=NA`, `Calificacion_Emisision=NA`, `Segmento=PRE`. Mirror identifiers: `Numero_Cis_Prestamo = Numero_Cis_Garantia`, `Numero_Ruc_Prestamo = Numero_Ruc_Garantia`.
     6.  **Importe enforcement:** Force `Importe = Valor_Garantia` using the normalized numeric series. If any discrepancy remains, the transformation aborts with a fatal error (incidence severity `error`).
-    7.  **Output formatting:** Produce the final column order with dot decimal strings (no thousand separators, no trailing zeros) and ensure all required columns exist, filling missing fields with empty strings.
+    7.  **Output formatting:** Emit the 37-column regulatory layout (mirroring the target schema) with dot decimal strings (no thousand separators, no trailing zeros). Any columns missing in the source are injected as empty strings so downstream consumers always receive the enriched layout (`Clave_*`, statuses, mirrored CIS/RUC, etc.).
 
 ---
 

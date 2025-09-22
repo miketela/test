@@ -188,6 +188,7 @@ To keep the exploration/transformation stages happy, please stick to these conve
 - **Quoted fields:** Any column that can contain spaces (e.g., organization or documento descriptions) should be wrapped in quotes when using CSV. Tabs already protect those values.
 - **Single header row:** Make sure only one header line is present and it matches the schema column names (see `schemas/AT12/schema_headers.json`). Drop Excel titles, totals, or blank lines before saving.
 - **One delimiter per file:** If you must convert between TXT and CSV, regenerate the file rather than editing by hand. Mixed delimiters are the number-one cause of ingest failures.
+- **No trailing blanks:** Remove empty rows at the bottom of the sheet before exporting. The pipeline now drops them automatically, but they skew record counts and slow validation.
 
 ## AT12 Transformation Highlights (TDC updates)
 

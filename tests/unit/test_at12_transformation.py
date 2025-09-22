@@ -402,6 +402,10 @@ class TestAT12TransformationEngine:
             'Codigo_Origen': ['01', '01', '02']
         })
 
+        # Add a completely blank row to verify it is pruned
+        blank_row = {column: '' for column in df.columns}
+        df = pd.concat([df, pd.DataFrame([blank_row])], ignore_index=True)
+
         context = MagicMock(spec=TransformationContext)
         context.paths = mock_paths
         context.period = '20240131'
@@ -421,17 +425,33 @@ class TestAT12TransformationEngine:
         )
 
         source_data = {
-            'AT03_CREDITOS': pd.DataFrame({'num_cta': ['123', '9876543210987654321']})
+            'AT03_CREDITOS': pd.DataFrame({'num_cta': ['123', '9876543210987654321']}),
+            'AT03_TDC': pd.DataFrame({'num_cta': ['123']})
         }
 
         processed = engine._process_valores_data(df, context, result, source_data=source_data)
+
+        # Blank rows are removed
+        assert len(processed) == 3
+
+        expected_columns = [
+            'Fecha', 'Codigo_Banco', 'Numero_Prestamo', 'Numero_Ruc_Garantia', 'Id_Fideicomiso',
+            'Nombre_Fiduciaria', 'Origen_Garantia', 'Tipo_Garantia', 'Tipo_Facilidad', 'Id_Documento',
+            'Nombre_Organismo', 'Valor_Inicial', 'Valor_Garantia', 'Valor_Ponderado', 'Tipo_Instrumento',
+            'Calificacion_Emisor', 'Calificacion_Emisision', 'Pais_Emision', 'Fecha_Ultima_Actualizacion',
+            'Fecha_Vencimiento', 'Tipo_Poliza', 'Codigo_Region', 'Clave_Pais', 'Clave_Empresa',
+            'Clave_Tipo_Garantia', 'Clave_Subtipo_Garantia', 'Clave_Tipo_Pren_Hipo', 'Numero_Garantia',
+            'Numero_Cis_Garantia', 'Numero_Cis_Prestamo', 'Numero_Ruc_Prestamo', 'Moneda', 'Importe',
+            'Status_Garantia', 'Status_Prestamo', 'Codigo_Origen', 'Segmento'
+        ]
+        assert list(processed.columns) == expected_columns
 
         # Numero_Prestamo normalization & Id_Documento substitution
         assert '0000000123' in processed['Numero_Prestamo'].values
         assert processed.loc[processed['Numero_Prestamo'] == '0000000123', 'Id_Documento'].iloc[0] == '0000000123'
         tipo_fac_map = dict(zip(processed['Numero_Prestamo'], processed['Tipo_Facilidad']))
         assert tipo_fac_map['0000000123'] == '01'
-        assert tipo_fac_map['9876543210987654321'] == '01'
+        assert tipo_fac_map['9876543210987654321'] == '02'  # Missing in AT03_TDC, so stays 02
         assert tipo_fac_map['0000444555'] == '02'
 
         # Monetary rules with dot decimal and Importes equal Valor_Garantia

@@ -98,11 +98,21 @@
     "Fecha_Vencimiento": null,
     "Tipo_Poliza": null,
     "Codigo_Region": null,
+    "Clave_Pais": null,
+    "Clave_Empresa": null,
+    "Clave_Tipo_Garantia": null,
+    "Clave_Subtipo_Garantia": null,
+    "Clave_Tipo_Pren_Hipo": null,
     "Numero_Garantia": null,
     "Numero_Cis_Garantia": null,
+    "Numero_Cis_Prestamo": null,
+    "Numero_Ruc_Prestamo": null,
     "Moneda": null,
     "Importe": null,
-    "Codigo_Origen": null
+    "Status_Garantia": null,
+    "Status_Prestamo": null,
+    "Codigo_Origen": null,
+    "Segmento": null
   },
   "SOBREGIRO_AT12": {
     "Fecha": null,

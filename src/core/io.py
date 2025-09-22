@@ -5,6 +5,7 @@ Handles strict CSV and XLSX reading/writing with chunking support.
 """
 
 import csv
+import logging
 import pandas as pd
 from pathlib import Path
 from typing import Iterator, List, Dict, Any, Optional, Tuple, Union
@@ -135,6 +136,28 @@ class StrictCSVReader(BaseFileReader):
         self.auto_detect_delimiter = auto_detect_delimiter
         # Include common delimiters: comma, semicolon, pipe, tab, and space
         self.delimiter_candidates = delimiter_candidates or [',', ';', '|', '\t', ' ']
+
+    @staticmethod
+    def _drop_empty_rows(df: pd.DataFrame, file_path: Optional[Path] = None) -> pd.DataFrame:
+        """Remove rows that are completely blank after trimming object columns."""
+        if df is None or df.empty:
+            return df
+
+        obj_cols = df.select_dtypes(include=['object'])
+        if obj_cols.empty:
+            return df
+
+        stripped = obj_cols.fillna('').apply(lambda col: col.astype(str).str.strip())
+        empty_mask = stripped.eq('').all(axis=1)
+        if empty_mask.any():
+            logger = logging.getLogger(__name__)
+            try:
+                identifier = file_path.name if file_path else 'dataframe'
+            except Exception:
+                identifier = str(file_path) if file_path else 'dataframe'
+            logger.info(f"{identifier}: dropped {int(empty_mask.sum())} completely blank row(s)")
+            df = df.loc[~empty_mask].copy()
+        return df
     
     def _get_file_encoding(self, file_path: Path) -> str:
         """Get the appropriate encoding for a file.
@@ -179,11 +202,6 @@ class StrictCSVReader(BaseFileReader):
         
         # Get the appropriate encoding for this file
         file_encoding = self._get_file_encoding(file_path)
-        delim = self._resolve_csv_delimiter(file_path, file_encoding)
-        delim = self._resolve_csv_delimiter(file_path, file_encoding)
-        delim = self._resolve_csv_delimiter(file_path, file_encoding)
-        delim = self._resolve_csv_delimiter(file_path, file_encoding)
-        delim = self._resolve_csv_delimiter(file_path, file_encoding)
         # Resolve delimiter for this file if enabled
         delim = self._resolve_csv_delimiter(file_path, file_encoding)
         try:
@@ -221,8 +239,11 @@ class StrictCSVReader(BaseFileReader):
                 
                 # Validate data rows
                 for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
+                    if not row or all((cell or '').strip() == '' for cell in row):
+                        continue
+
                     row_count += 1
-                    
+
                     if len(row) != column_count:
                         warnings.append(f"Row {row_num}: width mismatch (expected {column_count}, got {len(row)})")
                 
@@ -246,8 +267,11 @@ class StrictCSVReader(BaseFileReader):
                                 
                                 # Validate data rows
                                 for row_num, row in enumerate(reader, start=2):
+                                    if not row or all((cell or '').strip() == '' for cell in row):
+                                        continue
+
                                     row_count += 1
-                                    
+
                                     if len(row) != column_count:
                                         warnings.append(f"Row {row_num}: width mismatch (expected {column_count}, got {len(row)})")
                                 
@@ -291,7 +315,7 @@ class StrictCSVReader(BaseFileReader):
         delim = self._resolve_csv_delimiter(file_path, file_encoding)
         
         try:
-            return pd.read_csv(
+            df = pd.read_csv(
                 file_path,
                 delimiter=delim,
                 encoding=file_encoding,
@@ -299,9 +323,10 @@ class StrictCSVReader(BaseFileReader):
                 dtype=str,  # Read all as strings initially
                 keep_default_na=False  # Don't convert to NaN
             )
+            return self._drop_empty_rows(df, file_path)
         except pd.errors.ParserError:
             # Retry with python engine, treating quotes as literal characters
-            return pd.read_csv(
+            df = pd.read_csv(
                 file_path,
                 delimiter=delim,
                 encoding=file_encoding,
@@ -312,6 +337,7 @@ class StrictCSVReader(BaseFileReader):
                 quoting=csv.QUOTE_NONE,
                 escapechar='\\'
             )
+            return self._drop_empty_rows(df, file_path)
         except UnicodeDecodeError:
             # Try fallback encodings if auto-detection is enabled
             if self.auto_detect_encoding and self.encoding is None:
@@ -319,7 +345,7 @@ class StrictCSVReader(BaseFileReader):
                 for fallback_encoding in fallback_encodings:
                     if fallback_encoding != file_encoding:
                         try:
-                            return pd.read_csv(
+                            df = pd.read_csv(
                                 file_path,
                                 delimiter=delim,
                                 encoding=fallback_encoding,
@@ -327,6 +353,7 @@ class StrictCSVReader(BaseFileReader):
                                 dtype=str,
                                 keep_default_na=False
                             )
+                            return self._drop_empty_rows(df, file_path)
                         except UnicodeDecodeError:
                             continue
             # Re-raise the original error if all fallbacks fail
@@ -356,8 +383,11 @@ class StrictCSVReader(BaseFileReader):
             )
             
             for chunk in chunk_reader:
-                yield chunk
-                
+                cleaned = self._drop_empty_rows(chunk, file_path)
+                if not cleaned.empty:
+                    yield cleaned
+            return
+
         except pd.errors.ParserError:
             chunk_reader = pd.read_csv(
                 file_path,
@@ -373,7 +403,9 @@ class StrictCSVReader(BaseFileReader):
             )
 
             for chunk in chunk_reader:
-                yield chunk
+                cleaned = self._drop_empty_rows(chunk, file_path)
+                if not cleaned.empty:
+                    yield cleaned
 
         except UnicodeDecodeError:
             # Try fallback encodings if auto-detection is enabled
@@ -393,7 +425,9 @@ class StrictCSVReader(BaseFileReader):
                             )
                             
                             for chunk in chunk_reader:
-                                yield chunk
+                                cleaned = self._drop_empty_rows(chunk, file_path)
+                                if not cleaned.empty:
+                                    yield cleaned
                             return  # Success, exit the function
                         except UnicodeDecodeError:
                             continue
@@ -427,7 +461,8 @@ class StrictCSVReader(BaseFileReader):
             read_kwargs.update({'sep': delim, 'engine': 'c', 'quotechar': self.quotechar})
 
         try:
-            return pd.read_csv(file_path, **read_kwargs)
+            df = pd.read_csv(file_path, **read_kwargs)
+            return self._drop_empty_rows(df, file_path)
         except pd.errors.ParserError:
             fallback_kwargs = read_kwargs.copy()
             fallback_kwargs['engine'] = 'python'
@@ -436,7 +471,8 @@ class StrictCSVReader(BaseFileReader):
             fallback_kwargs['on_bad_lines'] = 'warn'
             # Quote handling conflicts with QUOTE_NONE
             fallback_kwargs.pop('quotechar', None)
-            return pd.read_csv(file_path, **fallback_kwargs)
+            df = pd.read_csv(file_path, **fallback_kwargs)
+            return self._drop_empty_rows(df, file_path)
         except UnicodeDecodeError:
             # Try fallback encodings if auto-detection is enabled
             if self.auto_detect_encoding and self.encoding is None:
@@ -448,7 +484,8 @@ class StrictCSVReader(BaseFileReader):
                             if 'quotechar' not in read_kwargs and delim != ' ':
                                 read_kwargs['quotechar'] = self.quotechar
                             read_kwargs['engine'] = 'c' if delim != ' ' else 'python'
-                            return pd.read_csv(file_path, **read_kwargs)
+                            df = pd.read_csv(file_path, **read_kwargs)
+                            return self._drop_empty_rows(df, file_path)
                         except UnicodeDecodeError:
                             continue
             # Re-raise the original error if all fallbacks fail
@@ -472,8 +509,12 @@ class StrictCSVReader(BaseFileReader):
                 reader = csv.reader(f, delimiter=effective_delim, quotechar=self.quotechar)
                 # Skip header
                 next(reader, None)
-                # Count remaining rows
-                return sum(1 for _ in reader)
+                # Count remaining rows, ignoring blank lines
+                return sum(
+                    1
+                    for row in reader
+                    if row and not all((cell or '').strip() == '' for cell in row)
+                )
         except UnicodeDecodeError:
             # Try fallback encodings if auto-detection is enabled
             if self.auto_detect_encoding and self.encoding is None:
@@ -486,22 +527,26 @@ class StrictCSVReader(BaseFileReader):
                                 # Skip header
                                 next(reader, None)
                                 # Count remaining rows
-                                return sum(1 for _ in reader)
+                                return sum(
+                                    1
+                                    for row in reader
+                                    if row and not all((cell or '').strip() == '' for cell in row)
+                                )
                         except UnicodeDecodeError:
                             continue
             # Fallback: simple line count minus header
             try:
                 with open(file_path, 'r', encoding=file_encoding, errors='ignore') as f:
-                    total = sum(1 for _ in f)
-                return max(total - 1, 0)
+                    data_lines = [line for line in f][1:]
+                return sum(1 for line in data_lines if line and line.strip())
             except Exception:
                 return 0
         except Exception:
             # Fallback: simple line count minus header on generic errors
             try:
                 with open(file_path, 'r', encoding=file_encoding, errors='ignore') as f:
-                    total = sum(1 for _ in f)
-                return max(total - 1, 0)
+                    data_lines = [line for line in f][1:]
+                return sum(1 for line in data_lines if line and line.strip())
             except Exception:
                 return 0
     
