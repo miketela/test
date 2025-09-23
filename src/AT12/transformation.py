@@ -1372,6 +1372,8 @@ class AT12TransformationEngine(TransformationEngine):
         for col in expected_cols:
             if col not in df.columns:
                 df[col] = ''
+        # País_Emision constant for VALORES output
+        df['Pais_Emision'] = '591'
         # Prefer non-accented Codigo_Banco if present via mapping
         if 'Código_Banco' in df.columns and 'Codigo_Banco' not in df.columns:
             df['Codigo_Banco'] = df['Código_Banco']

@@ -567,6 +567,8 @@ class TestAT12TransformationEngine:
         for column, expected_value in expected_constants.items():
             assert set(processed[column]) == {expected_value}
 
+        assert set(processed['Pais_Emision']) == {'591'}
+
         # Numero_Garantia assigned and padded
         assert processed['Numero_Garantia'].str.len().eq(10).all()
         assert processed['Numero_Garantia'].is_unique
