@@ -268,7 +268,7 @@ class TransformationEngine(ABC):
     def _save_dataframe_as_csv(self, df: pd.DataFrame, file_path: Path, 
                               encoding: str = 'utf-8') -> bool:
         """Save DataFrame as CSV with consistent formatting.
-        
+
         Args:
             df: DataFrame to save
             file_path: Output file path
@@ -294,6 +294,21 @@ class TransformationEngine(ABC):
             self.logger.info(f"Saved {len(df)} records to {file_path}")
             return True
             
+        except Exception as e:
+            self.logger.error(f"Failed to save DataFrame to {file_path}: {str(e)}")
+            return False
+
+    def _save_dataframe_as_excel(self, df: pd.DataFrame, file_path: Path, *, sheet_name: str = 'Sheet1') -> bool:
+        """Save DataFrame as Excel with consistent formatting."""
+        try:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with pd.ExcelWriter(file_path, engine=self.config.get('excel_engine', 'openpyxl')) as writer:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            self.logger.info(f"Saved {len(df)} records to {file_path}")
+            return True
+
         except Exception as e:
             self.logger.error(f"Failed to save DataFrame to {file_path}: {str(e)}")
             return False

@@ -18,8 +18,8 @@ The system handles multiple, specific validations as sequential stages within on
     │   ├── incidencias/
     │   │   ├── EEOR_TABULAR_AT12_BASE_20250131.csv
     │   │   └── ... (other incident files from each stage)
-    │   ├── procesados/ (Intermediate corrected CSVs)
-    │   │   └── AT12_BASE_20250131.csv 
+    │   ├── procesados/ (Intermediate corrected Excel files)
+    │   │   └── AT12_BASE_20250131.xlsx 
     │   └── consolidated/ (Final TXT outputs)
     │       ├── AT12_BASE_20250131.txt
     │       ├── TDC_AT12_20250131.txt
@@ -322,6 +322,8 @@ This is a critical stage of the ETL pipeline where financial validations are per
     5.  **Sanitization (applies to all subtypes):** Before writing any TXT, strip leading/trailing whitespace across every column and remove hidden space characters (NBSP, zero-width, `ÿ`, etc.) so no record carries special spacing glyphs into the consolidated delivery.
 
 *   **Final Action (Output):** Four headerless `.txt` files are created in the `consolidated/` directory, each with its specific delimiter, representing the final output of the ETL pipeline. Internal helper columns (e.g., `__num`) are not included; all monetary fields are normalized to dot decimals across RAW, processed and consolidated outputs.
+
+Additionally, the `procesados/` directory now stores the intermediate deliverables as Excel workbooks (`.xlsx`) with sanitized whitespace (no leading/trailing blanks or hidden characters) and the same normalized monetary formatting applied prior to the TXT stage.
 
 Note (Input/RAW normalization): TXT inputs (including Excel “Unicode Text”) are accepted and converted to UTF‑8 CSV in RAW with auto‑detected encoding/delimiter. During this conversion, and for CSV sources directly, all monetary fields are normalized to dot (`.`) decimals to unify downstream handling. Processed CSVs also maintain dot decimals.
 

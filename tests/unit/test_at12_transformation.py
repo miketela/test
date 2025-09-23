@@ -720,7 +720,7 @@ class TestAT12TransformationEngine:
         context.period = '202401'
         context.paths = Mock()
         context.paths.get_incidencia_path = Mock(return_value=temp_dir / 'incidencia.csv')
-        context.paths.get_procesado_path = Mock(return_value=temp_dir / 'procesado.csv')
+        context.paths.get_procesado_path = Mock(return_value=temp_dir / 'procesado.xlsx')
         context.paths.get_consolidated_path = Mock(return_value=temp_dir / 'consolidated.txt')
         
         result = Mock(spec=TransformationResult)
@@ -753,7 +753,7 @@ class TestAT12TransformationEngine:
         # Mock paths object
         mock_paths = Mock()
         mock_paths.get_incidencia_path = Mock(return_value=Path('/mock/incidencia/path.csv'))
-        mock_paths.get_procesado_path = Mock(return_value=Path('/mock/procesado/path.csv'))
+        mock_paths.get_procesado_path = Mock(return_value=Path('/mock/procesado/path.xlsx'))
         mock_paths.get_consolidated_path = Mock(return_value=Path('/mock/consolidated/path.txt'))
         context.paths = mock_paths
         
