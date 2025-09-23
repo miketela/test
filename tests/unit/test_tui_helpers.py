@@ -40,7 +40,7 @@ def test_collect_and_clean_outputs(monkeypatch, tmp_path):
     # Create some files to delete
     for p in [
         base / "incidencias" / "a.csv",
-        base / "procesados" / "b.csv",
+        base / "procesados" / "b.xlsx",
         base / "consolidated" / "c.TXT",
         base / "state" / "seq.json",
         project_root / "metrics" / "m.json",
@@ -61,4 +61,3 @@ def test_collect_and_clean_outputs(monkeypatch, tmp_path):
     # All files should be gone
     for p in files:
         assert not p.exists()
-

@@ -82,9 +82,9 @@ class TestAT12Paths:
             procesados_dir=procesados_dir
         )
         
-        filename = "AT12_BASE_20250131.csv"
+        filename = "AT12_BASE_20250131.xlsx"
         processed_path = paths.get_procesado_path(filename)
-        
+
         expected_path = paths.procesados_dir / filename
         assert processed_path == expected_path
     
@@ -148,15 +148,15 @@ class TestAT12Paths:
         paths.ensure_directories()
         
         # Create some test files
-        (paths.procesados_dir / "AT12_BASE_20240131.csv").touch()
-        (paths.procesados_dir / "AT12_TDC_20240131.csv").touch()
+        (paths.procesados_dir / "AT12_BASE_20240131.xlsx").touch()
+        (paths.procesados_dir / "AT12_TDC_20240131.xlsx").touch()
         (paths.procesados_dir / "AT12_Cobis_202401__run-202401.TXT").touch()
         (paths.procesados_dir / "other_file.txt").touch()
-        
-        # List CSV files
-        csv_files = paths.list_procesados("*.csv")
-        assert len(csv_files) == 2
-        
+
+        # List Excel files
+        excel_files = paths.list_procesados("*.xlsx")
+        assert len(excel_files) == 2
+
         # List TXT files
         txt_files = paths.list_procesados("*.TXT")
         assert len(txt_files) == 1
@@ -210,7 +210,7 @@ class TestAT12Paths:
         paths.ensure_directories()
         
         # Create some test files
-        file1 = paths.procesados_dir / "file1.csv"
+        file1 = paths.procesados_dir / "file1.xlsx"
         file2 = paths.procesados_dir / "file2.TXT"
         file1.touch()
         file2.touch()

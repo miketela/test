@@ -2398,7 +2398,7 @@ class AT12TransformationEngine(TransformationEngine):
         # Generate incidence files
         self._generate_incidence_files(context, result)
         
-        # Generate processed CSV files
+        # Generate processed Excel files
         self._generate_processed_files(context, transformed_data, result)
         
         # Generate consolidated TXT file
@@ -2435,7 +2435,7 @@ class AT12TransformationEngine(TransformationEngine):
     def _generate_processed_files(self, context: TransformationContext, 
                                 transformed_data: Dict[str, pd.DataFrame], 
                                 result: TransformationResult) -> None:
-        """Generate processed CSV files."""
+        """Generate processed Excel files."""
         # Helper to get expected headers from schema file
         def _get_expected_headers(subtype: str) -> list:
             try:
@@ -2454,41 +2454,48 @@ class AT12TransformationEngine(TransformationEngine):
             return []
 
         for subtype, df in transformed_data.items():
-            if not df.empty:
-                # Generate processed filename
-                processed_filename = f"AT12_{subtype}_{context.period}.csv"
-                processed_path = context.paths.get_procesado_path(processed_filename)
-                
-                # Drop internal numeric helper columns (e.g., __num)
-                try:
-                    drop_cols = [c for c in df.columns if str(c).endswith('__num')]
-                    if drop_cols:
-                        df = df.drop(columns=drop_cols)
-                except Exception:
-                    pass
-                # Standardize columns to schema order/names
-                try:
-                    expected = _get_expected_headers(subtype)
-                    if expected:
-                        from src.core.header_mapping import HeaderMapper as _HM
-                        df = _HM.standardize_dataframe_to_schema(df, subtype, expected)
-                except Exception:
-                    pass
-                # Zero out Valor_Ponderado across all outputs
-                try:
-                    df = self._zero_out_valor_ponderado(df)
-                except Exception:
-                    pass
-                # Enforce dot decimals in processed CSV outputs
-                try:
-                    df = self._enforce_dot_decimal(df)
-                except Exception:
-                    pass
-                
-                # Save processed file
-                if self._save_dataframe_as_csv(df, processed_path):
-                    result.processed_files.append(processed_path)
-                    self.logger.info(f"Generated processed file: {processed_path}")
+            if df.empty:
+                continue
+
+            df_processed = df.copy()
+
+            processed_filename = f"AT12_{subtype}_{context.period}.xlsx"
+            processed_path = context.paths.get_procesado_path(processed_filename)
+
+            try:
+                drop_cols = [c for c in df_processed.columns if str(c).endswith('__num')]
+                if drop_cols:
+                    df_processed = df_processed.drop(columns=drop_cols)
+            except Exception:
+                pass
+
+            try:
+                expected = _get_expected_headers(subtype)
+                if expected:
+                    from src.core.header_mapping import HeaderMapper as _HM
+                    df_processed = _HM.standardize_dataframe_to_schema(df_processed, subtype, expected)
+            except Exception:
+                pass
+
+            try:
+                df_processed = self._zero_out_valor_ponderado(df_processed)
+            except Exception:
+                pass
+
+            try:
+                df_processed = self._enforce_dot_decimal(df_processed)
+            except Exception:
+                pass
+
+            try:
+                df_processed = self._sanitize_output_whitespace(df_processed, subtype=subtype)
+            except Exception as exc:
+                result.errors.append(str(exc))
+                raise
+
+            if self._save_dataframe_as_excel(df_processed, processed_path, sheet_name=subtype):
+                result.processed_files.append(processed_path)
+                self.logger.info(f"Generated processed file: {processed_path}")
     
     def _generate_consolidated_file(self, context: TransformationContext, 
                                   transformed_data: Dict[str, pd.DataFrame], 

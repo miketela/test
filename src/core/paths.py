@@ -5,7 +5,7 @@ transforms/AT12 directory structure, eliminating year/month subdirectories.
 
 New Structure:
 - transforms/AT12/incidencias/  # All incidence CSVs
-- transforms/AT12/procesados/   # Corrected CSVs and consolidated TXT
+- transforms/AT12/procesados/   # Corrected Excel files and consolidated TXT
 """
 
 from pathlib import Path
@@ -83,9 +83,9 @@ class AT12Paths:
     
     def get_procesado_path(self, filename: str) -> Path:
         """Get full path for a processed file.
-        
+
         Args:
-            filename: Processed filename (e.g., 'AT12_BASE_20250131.csv')
+            filename: Processed filename (e.g., 'AT12_BASE_20250131.xlsx')
             
         Returns:
             Full path in procesados directory
