@@ -12,6 +12,7 @@ from src.core.incidence_reporter import IncidenceType, IncidenceSeverity
 from src.core.paths import AT12Paths
 from src.core.naming import FilenameParser
 from src.core.header_mapping import HeaderMapper
+from src.core.config import Config
 
 
 class TestAT12TransformationEngine:
@@ -58,6 +59,33 @@ class TestAT12TransformationEngine:
         engine.paths = mock_paths
         engine.logger = mock_logger
         return engine
+
+    @pytest.fixture
+    def base_context(self, temp_dir, mock_paths, mock_logger):
+        """Build a concrete TransformationContext for BASE scenarios."""
+        config = Config()
+        config.base_dir = str(temp_dir)
+        config.data_raw_dir = str(temp_dir / "data" / "raw")
+        config.data_processed_dir = str(temp_dir / "data" / "processed")
+        config.metrics_dir = str(temp_dir / "metrics")
+        config.logs_dir = str(temp_dir / "logs")
+        config.schemas_dir = str(temp_dir / "schemas")
+        # Ensure directories exist to satisfy helper routines that write exports
+        Path(config.data_raw_dir).mkdir(parents=True, exist_ok=True)
+        Path(config.data_processed_dir).mkdir(parents=True, exist_ok=True)
+        Path(config.metrics_dir).mkdir(parents=True, exist_ok=True)
+        Path(config.logs_dir).mkdir(parents=True, exist_ok=True)
+        Path(config.schemas_dir).mkdir(parents=True, exist_ok=True)
+
+        context = TransformationContext(
+            run_id="AT12_202401__run-test",
+            period="20240131",
+            config=config,
+            paths=mock_paths,
+            source_files=[],
+            logger=mock_logger
+        )
+        return context
     
     def test_init(self, mock_paths, sample_config, mock_logger):
         """Test AT12TransformationEngine initialization."""
@@ -817,3 +845,133 @@ class TestAT12TransformationEngine:
         except (NotImplementedError, AttributeError):
             # Method exists but may not be fully implemented yet - this is acceptable
             pass
+
+    @pytest.mark.unit
+    def test_auto_policy_populates_auto_fields(self, engine, base_context):
+        """GARANTIA_AUTOS join should populate Id_Documento, amounts, and dates."""
+        engine.incidences_data = {}
+        engine._export_error_subset = Mock()
+        engine._store_incidences = Mock()
+
+        base_df = pd.DataFrame({
+            'Tipo_Garantia': ['0101'],
+            'Id_Documento': [''],
+            'Numero_Prestamo': ['0000605248'],
+            'Importe': ['1500.00'],
+            'Valor_Garantia': ['1500.00'],
+            'Fecha_Ultima_Actualizacion': ['20240101'],
+            'Fecha_Vencimiento': ['20240131']
+        })
+
+        autos_df = pd.DataFrame({
+            'numcred': ['605248'],  # normalized join key should match loan id
+            'num_poliza': ['AUTO-XYZ-01'],
+            'Valor_Garantia': ['2500.00'],
+            'Fecha_Inicio': ['20231215'],
+            'Fecha_Vencimiento': ['20241214'],
+            'monto_asegurado': ['7500']
+        })
+
+        source_data = {'GARANTIA_AUTOS_AT12': autos_df}
+
+        transformed = engine._apply_error_poliza_auto_correction(base_df, base_context, source_data)
+
+        assert transformed.loc[0, 'Id_Documento'] == 'AUTO-XYZ-01'
+        assert transformed.loc[0, 'Importe'] == '2500.00'
+        assert transformed.loc[0, 'Valor_Garantia'] == '2500.00'
+        assert transformed.loc[0, 'Fecha_Ultima_Actualizacion'] == '20231215'
+        assert transformed.loc[0, 'Fecha_Vencimiento'] == '20241214'
+
+    @pytest.mark.unit
+    def test_codigo_fiduciaria_update_changes_508_to_528(self, engine, base_context):
+        """Nombre_fiduciaria=508 should be normalized to 528 for BASE."""
+        engine._export_error_subset = Mock()
+
+        df = pd.DataFrame({
+            'Id_Fiduciaria': ['A1', 'B2'],
+            'Nombre_fiduciaria': ['508', '600']
+        })
+
+        updated = engine._apply_codigo_fiduciaria_update(df, base_context, subtype='BASE_AT12')
+
+        assert list(updated['Nombre_fiduciaria']) == ['528', '600']
+
+    @pytest.mark.unit
+    def test_eeor_tabular_cleaning_trims_whitespace(self, engine, base_context):
+        """Whitespace cleaning should strip and collapse spaces in text fields."""
+        engine.incidences_data = {}
+        engine._store_incidences = Mock()
+
+        df = pd.DataFrame({
+            'Numero_Prestamo': ['  12345  '],
+            'Id_Documento': ['  12   34  5  '],
+            'Nombre_Organismo': ['  Fondo   de   Garantía  ']
+        })
+
+        cleaned = engine._apply_eeor_tabular_cleaning(df, base_context, subtype='BASE_AT12')
+
+        assert cleaned.loc[0, 'Numero_Prestamo'] == '12345'
+        assert cleaned.loc[0, 'Id_Documento'] == '12 34 5'
+        assert cleaned.loc[0, 'Nombre_Organismo'] == 'Fondo de Garantía'
+
+    @pytest.mark.unit
+    def test_inmuebles_sin_poliza_sets_defaults_for_0208(self, engine, base_context):
+        """Tipo_Poliza vacío para 0208 debe convertirse en '01'."""
+        df = pd.DataFrame({
+            'Tipo_Garantia': ['0208', '0300'],
+            'Tipo_Poliza': ['', '05'],
+            'Numero_Prestamo': ['123', '456']
+        })
+
+        updated = engine._apply_inmuebles_sin_poliza_correction(df, base_context, source_data={})
+
+        assert updated.loc[0, 'Tipo_Poliza'] == '01'
+        assert updated.loc[1, 'Tipo_Poliza'] == '05'
+
+    @pytest.mark.unit
+    def test_fecha_avaluo_correction_updates_from_at03(self, engine, base_context):
+        """Fecha_Ultima_Actualizacion debe alinearse con AT03_CREDITOS."""
+        engine._export_error_subset = Mock()
+
+        df = pd.DataFrame({
+            'Tipo_Garantia': ['0207'],
+            'Numero_Prestamo': ['0000123456'],
+            'Fecha_Ultima_Actualizacion': ['20250201']  # future relative to cutoff -> needs correction
+        })
+
+        at03_df = pd.DataFrame({
+            'num_cta': ['123456'],
+            'fec_ini_prestamo': ['20230510']
+        })
+
+        source_data = {'AT03_CREDITOS': at03_df}
+
+        updated = engine._apply_fecha_avaluo_correction(df, base_context, source_data, subtype='BASE_AT12')
+
+        assert updated.loc[0, 'Fecha_Ultima_Actualizacion'] == '20230510'
+
+    @pytest.mark.unit
+    def test_id_documento_padding_behavior(self, engine, base_context):
+        """Numeric Id_Documento values should be zero-padded without altering alphanumeric ones."""
+        df = pd.DataFrame({
+            'Id_Documento': ['12345', 'AUTO-XYZ-01'],
+            'Tipo_Garantia': ['0101', '0101']
+        })
+
+        padded = engine._apply_id_documento_padding(df, base_context, subtype='BASE_AT12')
+
+        assert padded.loc[0, 'Id_Documento'] == '0000012345'
+        assert padded.loc[1, 'Id_Documento'] == 'AUTO-XYZ-01'
+
+    @pytest.mark.unit
+    def test_sanitize_output_whitespace_removes_special_characters(self, engine):
+        """Sanitization should drop zero-width and diaeresis characters before export."""
+        df = pd.DataFrame({
+            'Id_Documento': ['\u0178AUTO123'],
+            'Descripcion': ['Valor\u200b con espacio']
+        })
+
+        cleaned = engine._sanitize_output_whitespace(df, subtype='BASE_AT12')
+
+        assert cleaned.loc[0, 'Id_Documento'] == 'AUTO123'
+        assert cleaned.loc[0, 'Descripcion'] == 'Valor con espacio'
