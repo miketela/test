@@ -11,6 +11,7 @@ from src.core.transformation import TransformationContext, TransformationResult
 from src.core.incidence_reporter import IncidenceType, IncidenceSeverity
 from src.core.paths import AT12Paths
 from src.core.naming import FilenameParser
+from src.core.header_mapping import HeaderMapper
 
 
 class TestAT12TransformationEngine:
@@ -218,6 +219,88 @@ class TestAT12TransformationEngine:
         except (NotImplementedError, AttributeError):
             # Method exists but may not be fully implemented yet - this is acceptable
             pass
+
+    def test_enforce_dot_decimal_strings(self, engine):
+        df = pd.DataFrame({
+            'Valor_Inicial': ['1.234.567,89', '1234,5', 'NA', ''],
+            'Importe': ['1000.0', '2000', '-1.234,5', None]
+        })
+
+        result_df = engine._enforce_dot_decimal_strings(df, ('Valor_Inicial', 'Importe'))
+
+        assert list(result_df['Valor_Inicial']) == ['1234567.89', '1234.50', 'NA', '']
+        assert list(result_df['Importe']) == ['1000.00', '2000.00', '-1234.50', '']
+
+    def test_ensure_tipo_facilidad_single_auxiliary(self, engine):
+        df = pd.DataFrame({
+            'Numero_Prestamo': ['00123', '00999', '123456789012345', ''],
+            'Tipo_Facilidad': ['02', '02', '02', '02']
+        })
+
+        source_data = {
+            'AT03_TDC': pd.DataFrame({'num_cta': ['123', '1234567890']})
+        }
+
+        context = Mock(spec=TransformationContext)
+        result = Mock(spec=TransformationResult)
+
+        engine._export_error_subset = MagicMock()
+        engine._store_incidences = MagicMock()
+
+        updated = engine._ensure_tipo_facilidad_from_at03(
+            df,
+            'TDC_AT12',
+            context,
+            result,
+            source_data,
+            at03_key='AT03_TDC',
+            require=True
+        )
+
+        assert updated.loc[0, 'Tipo_Facilidad'] == '01'
+        assert updated.loc[1, 'Tipo_Facilidad'] == '02'
+        assert updated.loc[2, 'Tipo_Facilidad'] == '02'
+        assert updated.loc[3, 'Tipo_Facilidad'] == '02'
+
+    def test_generate_numero_garantia_tdc_zero_padding(self, engine):
+        df = pd.DataFrame({
+            'Id_Documento': ['123', '123', '456'],
+            'Tipo_Facilidad': ['01', '01', '02']
+        })
+
+        context = Mock(spec=TransformationContext)
+
+        result_df = engine._generate_numero_garantia_tdc(df, context)
+
+        assert 'Número_Garantía' in result_df.columns
+        assert list(result_df['Número_Garantía']) == ['0000850500', '0000850500', '0000850501']
+
+    def test_finalize_tdc_output_trims_and_sets_country(self, engine):
+        raw_df = pd.DataFrame({
+            'Fecha': ['20240131'],
+            'Codigo_Banco': ['001'],
+            'Número_Préstamo': ['0001'],
+            'Numero_Ruc_Garantia': ['RUC1'],
+            'Tipo_Facilidad': ['01'],
+            'Id_Documento': ['123'],
+            'Numero_Garantia': ['850500'],
+            'Numero_Cis_Garantia': ['  12345  '],
+            'Valor_Inicial': ['1000.00'],
+            'Valor_Garantia': ['1000.00'],
+            'Valor_Ponderado': ['18.000.00'],
+            'Importe': ['18,000'],
+            'Pais_Emision': [''],
+            'Descripcion de la Garantia': ['Sample'],
+            'ACMON': ['legacy']
+        })
+
+        finalized = engine._finalize_tdc_output(raw_df)
+
+        assert finalized.columns.tolist() == HeaderMapper.TDC_AT12_EXPECTED
+        assert finalized.at[0, 'País_Emisión'] == '591'
+        assert finalized.at[0, 'Número_Cis_Garantía'] == '12345'
+        assert finalized.at[0, 'Número_Garantía'] == '0000850500'
+        assert 'ACMON' not in finalized.columns
     
     def test_stage4_validation_functionality(self, engine):
         """Test stage 4 validation functionality."""
@@ -459,10 +542,10 @@ class TestAT12TransformationEngine:
         importe_map = dict(zip(processed['Numero_Prestamo'], processed['Importe']))
         assert valor_map['0000000123'] == '10250.75'
         assert importe_map['0000000123'] == '10250.75'
-        assert valor_map['9876543210987654321'] == '5000'
-        assert importe_map['9876543210987654321'] == '5000'
-        assert valor_map['0000444555'] == '2750'
-        assert importe_map['0000444555'] == '2750'
+        assert valor_map['9876543210987654321'] == '5000.00'
+        assert importe_map['9876543210987654321'] == '5000.00'
+        assert valor_map['0000444555'] == '2750.00'
+        assert importe_map['0000444555'] == '2750.00'
         assert all(',' not in value for value in processed['Importe'] if value)
 
         # Classification constants and statuses

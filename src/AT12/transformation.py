@@ -153,13 +153,12 @@ class AT12TransformationEngine(TransformationEngine):
     def _normalize_join_key(self, s: pd.Series) -> pd.Series:
         """Normalize keys for joins only (non-destructive): digits-only and strip leading zeros.
 
-        This improves matches where one side has formatting differences (spaces, hyphens, left padding).
-        Does not modify original DataFrame columns.
+        Empty-like values remain missing (`pd.NA`) so they never match auxiliary references by accident.
         """
         try:
             out = s.astype(str).str.replace(r"\D", "", regex=True)
             out = out.str.lstrip('0')
-            out = out.where(out != '', '0')
+            out = out.where(out != '', pd.NA)
             return out
         except Exception:
             return s.astype(str)
@@ -222,22 +221,88 @@ class AT12TransformationEngine(TransformationEngine):
         return s.map(lambda x: ('' if pd.isna(x) else f"{float(x):.2f}".replace('.', ',')))
 
     def _format_money_dot(self, s: pd.Series) -> pd.Series:
-        """Format numeric series with dot decimal separator and no thousands separators."""
-        from decimal import Decimal, InvalidOperation
+        """Format numeric series with dot decimal separator, two decimals, no thousand separators."""
+        from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
         def _fmt(value: Any) -> str:
-            if pd.isna(value):
+            if pd.isna(value) or value == '':
                 return ''
             try:
-                dec = Decimal(str(value)).normalize()
-                text = format(dec, 'f')
+                dec = Decimal(str(value))
+                quantized = dec.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                return format(quantized, '.2f')
             except (InvalidOperation, ValueError):
                 return str(value)
-            if '.' in text:
-                text = text.rstrip('0').rstrip('.')
-            return text
 
         return s.map(_fmt)
+
+    def _enforce_dot_decimal_strings(self, df: pd.DataFrame, columns: Sequence[str]) -> pd.DataFrame:
+        """Ensure specified monetary columns use dot decimal format even if stored as strings."""
+        if df is None or df.empty:
+            return df
+
+        import re as _re
+        from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+        df = df.copy()
+        for col in columns:
+            if col not in df.columns:
+                continue
+
+            cleaned_values: List[str] = []
+            series = df[col]
+
+            for raw_val in series:
+                if pd.isna(raw_val):
+                    cleaned_values.append('')
+                    continue
+
+                text = str(raw_val).strip()
+                if text == '' or _re.search(r'[A-Za-z]', text):
+                    cleaned_values.append(text)
+                    continue
+
+                # Normalize separators and strip unexpected characters
+                sign = ''
+                if text.startswith('-'):
+                    sign = '-'
+                    text = text[1:]
+
+                text = text.replace(',', '.')
+                text = _re.sub(r'[^0-9\.]+', '', text)
+
+                if text.count('.') > 1:
+                    parts = text.split('.')
+                    text = ''.join(parts[:-1]) + '.' + parts[-1]
+
+                if text == '' or text == '.':
+                    cleaned_values.append('')
+                    continue
+
+                try:
+                    candidate = sign + text if sign else text
+                    dec = Decimal(candidate)
+                    normalized = dec.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    cleaned_values.append(format(normalized, '.2f'))
+                    continue
+                except InvalidOperation:
+                    pass
+
+                if '.' in text:
+                    whole, frac = text.split('.', 1)
+                else:
+                    whole, frac = text, ''
+
+                whole = whole.lstrip('0')
+                if whole == '':
+                    whole = '0'
+
+                frac = (frac + '00')[:2]
+                cleaned_values.append(f"{sign}{whole}.{frac}")
+
+            df[col] = cleaned_values
+
+        return df
 
     def _get_expected_headers(self, context: TransformationContext, subtype: str) -> list:
         """Load expected headers for a subtype from schema_headers.json.
@@ -758,19 +823,18 @@ class AT12TransformationEngine(TransformationEngine):
 
         # Step 0: Ensure Tipo_Facilidad using AT03_TDC (required for TDC)
         has_at03_tdc = ('AT03_TDC' in source_data) and (not source_data['AT03_TDC'].empty)
-        has_at03_creditos = ('AT03_CREDITOS' in source_data) and (not source_data['AT03_CREDITOS'].empty)
-        if has_at03_tdc and has_at03_creditos:
+        if has_at03_tdc:
             df = self._ensure_tipo_facilidad_from_at03(
                 df,
                 'TDC_AT12',
                 context,
                 result,
                 source_data,
-                at03_key=['AT03_CREDITOS', 'AT03_TDC'],
+                at03_key='AT03_TDC',
                 require=True
             )
         else:
-            raise RuntimeError("AT03_CREDITOS and AT03_TDC are required for FACILIDAD_FROM_AT03 in TDC_AT12")
+            self.logger.info("FACILIDAD_FROM_AT03 for TDC skipped: AT03_TDC not available")
 
         # Step 1: Generate Número_Garantía (in-process, no incidences)
         df = self._generate_numero_garantia_tdc(df, context)
@@ -786,7 +850,14 @@ class AT12TransformationEngine(TransformationEngine):
             df = self._validate_tdc_tarjeta_repetida(df, context)
         except Exception as e:
             self.logger.warning(f"TDC 'Tarjeta_repetida' validation skipped due to error: {e}")
-        
+
+        df = self._enforce_dot_decimal_strings(
+            df,
+            ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'Importe')
+        )
+
+        df = self._finalize_tdc_output(df)
+
         return df
     
     def _process_tdc_data(self, df: pd.DataFrame, context: TransformationContext, 
@@ -799,20 +870,19 @@ class AT12TransformationEngine(TransformationEngine):
 
         # Step 0: Ensure Tipo_Facilidad from AT03_TDC (required)
         has_at03_tdc = ('AT03_TDC' in source_data) and (not source_data['AT03_TDC'].empty)
-        has_at03_creditos = ('AT03_CREDITOS' in source_data) and (not source_data['AT03_CREDITOS'].empty)
-        if has_at03_tdc or has_at03_creditos:
+        if has_at03_tdc:
             df = self._ensure_tipo_facilidad_from_at03(
                 df,
                 'TDC_AT12',
                 context,
                 result,
                 source_data,
-                at03_key=['AT03_CREDITOS', 'AT03_TDC'],
+                at03_key='AT03_TDC',
                 require=False
             )
         else:
-            # Legacy method: skip if auxiliary sources not present (tests may call without aux sources)
-            self.logger.info("AT03_CREDITOS/TDC not available; skipping FACILIDAD_FROM_AT03 in legacy TDC path")
+            # Legacy method: skip if auxiliary source not present (tests may call without aux sources)
+            self.logger.info("AT03_TDC not available; skipping FACILIDAD_FROM_AT03 in legacy TDC path")
 
         # Step 1: Generate Número_Garantía (in-process, no incidences)
         df = self._generate_numero_garantia_tdc(df, context)
@@ -826,30 +896,13 @@ class AT12TransformationEngine(TransformationEngine):
         except Exception as e:
             self.logger.warning(f"TDC 'Tarjeta_repetida' validation skipped due to error: {e}")
         
-        # Step 4: Shape final output columns and order exactly as TDC schema
-        try:
-            from src.core.header_mapping import HeaderMapper as _HM
-            expected_cols = list(_HM.TDC_AT12_EXPECTED)
-            # Harmonize accented variants to match schema (no synthetic creation)
-            if 'Fecha_Última_Actualización' not in df.columns and 'Fecha_Ultima_Actualizacion' in df.columns:
-                df['Fecha_Última_Actualización'] = df['Fecha_Ultima_Actualizacion']
-            if 'Valor_Garantía' not in df.columns and 'Valor_Garantia' in df.columns:
-                df['Valor_Garantía'] = df['Valor_Garantia']
-            if 'Código_Banco' not in df.columns and 'Codigo_Banco' in df.columns:
-                df['Código_Banco'] = df['Codigo_Banco']
-            if 'Código_Región' not in df.columns and 'Codigo_Region' in df.columns:
-                df['Código_Región'] = df['Codigo_Region']
-            if 'Número_Garantía' not in df.columns and 'Numero_Garantia' in df.columns:
-                df['Número_Garantía'] = df['Numero_Garantia']
-            # Strict reorder only if complete
-            missing = [c for c in expected_cols if c not in df.columns]
-            if not missing:
-                df = df[expected_cols]
-            else:
-                self.logger.warning(f"TDC schema order not strictly enforced; missing columns: {missing}")
-        except Exception as e:
-            self.logger.warning(f"Failed to enforce TDC schema order: {e}")
-        
+        df = self._enforce_dot_decimal_strings(
+            df,
+            ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'Importe')
+        )
+
+        df = self._finalize_tdc_output(df)
+
         return df
 
     def _col_any(self, df: pd.DataFrame, candidates: list) -> Optional[str]:
@@ -938,8 +991,8 @@ class AT12TransformationEngine(TransformationEngine):
             self.logger.warning(f"EEOR_TABULAR cleaning skipped for SOBREGIRO due to error: {e}")
         
         # Step 0: Ensure Tipo_Facilidad from AT03 (only if AT03 available)
-        has_at03_tdc = ('AT03_TDC' in source_data) and (not source_data['AT03_TDC'].empty)
-        if has_at03 or has_at03_tdc:
+        has_at03_creditos = ('AT03_CREDITOS' in source_data) and (not source_data['AT03_CREDITOS'].empty)
+        if has_at03_creditos:
             try:
                 df = self._ensure_tipo_facilidad_from_at03(
                     df,
@@ -947,13 +1000,13 @@ class AT12TransformationEngine(TransformationEngine):
                     context,
                     result,
                     source_data,
-                    at03_key=['AT03_CREDITOS', 'AT03_TDC'],
+                    at03_key='AT03_CREDITOS',
                     require=False
                 )
             except Exception as e:
                 self.logger.warning(f"Skipping FACILIDAD_FROM_AT03 for SOBREGIRO due to error: {e}")
         else:
-            self.logger.info("Skipping FACILIDAD_FROM_AT03 for SOBREGIRO: AT03_CREDITOS/TDC not available")
+            self.logger.info("Skipping FACILIDAD_FROM_AT03 for SOBREGIRO: AT03_CREDITOS not available")
 
         # Light normalization (trim + monetarias)
         df = self._normalize_tdc_basic(df)
@@ -966,7 +1019,7 @@ class AT12TransformationEngine(TransformationEngine):
         else:
             self.logger.info("Skipping date mapping for SOBREGIRO: AT02_CUENTAS not available")
         
-        # Format money columns with comma decimal if normalized
+        # Format money columns with dot decimal if normalized
         for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe'):
             num_col = col + '__num'
             if num_col in df.columns:
@@ -977,10 +1030,21 @@ class AT12TransformationEngine(TransformationEngine):
                     target = 'Valor_Garantia'
                 else:
                     target = col
-                df[target] = self._format_money_comma(df[num_col])
+                df[target] = self._format_money_dot(df[num_col])
         if 'Importe__num' in df.columns:
-            df['Importe'] = self._format_money_comma(df['Importe__num'])
-        
+            df['Importe'] = self._format_money_dot(df['Importe__num'])
+
+        df = self._enforce_dot_decimal_strings(
+            df,
+            ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe')
+        )
+
+        for col in ('Numero_Garantia', 'Numero_Cis_Garantia'):
+            if col in df.columns:
+                df[col] = df[col].map(lambda v: '' if pd.isna(v) else str(v).strip())
+        if 'Pais_Emision' in df.columns:
+            df['Pais_Emision'] = '591'
+
         return df
     
     def _process_sobregiro_data(self, df: pd.DataFrame, context: TransformationContext, 
@@ -1001,7 +1065,7 @@ class AT12TransformationEngine(TransformationEngine):
                 context,
                 result,
                 source_data,
-                at03_key=['AT03_CREDITOS', 'AT03_TDC'],
+                at03_key='AT03_CREDITOS',
                 require=False
             )
         except Exception as e:
@@ -1015,7 +1079,7 @@ class AT12TransformationEngine(TransformationEngine):
         # The Numero_Garantia field is not modified for SOBREGIRO
         df = self._apply_date_mapping_sobregiro(df, context, source_data)
         
-        # Format money columns with comma decimal if normalized
+        # Format money columns with dot decimal if normalized
         for col in ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe'):
             num_col = col + '__num'
             if num_col in df.columns:
@@ -1026,10 +1090,21 @@ class AT12TransformationEngine(TransformationEngine):
                     target = 'Valor_Garantia'
                 else:
                     target = col
-                df[target] = self._format_money_comma(df[num_col])
+                df[target] = self._format_money_dot(df[num_col])
         if 'Importe__num' in df.columns:
-            df['Importe'] = self._format_money_comma(df['Importe__num'])
-        
+            df['Importe'] = self._format_money_dot(df['Importe__num'])
+
+        df = self._enforce_dot_decimal_strings(
+            df,
+            ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe')
+        )
+
+        for col in ('Numero_Garantia', 'Numero_Cis_Garantia'):
+            if col in df.columns:
+                df[col] = df[col].map(lambda v: '' if pd.isna(v) else str(v).strip())
+        if 'Pais_Emision' in df.columns:
+            df['Pais_Emision'] = '591'
+
         return df
 
     def _ensure_tipo_facilidad_from_at03(
@@ -1082,15 +1157,6 @@ class AT12TransformationEngine(TransformationEngine):
                 return 'num_cta'
             return None
 
-        # Helper: normalize join keys to last 10 digits after stripping
-        def _normalize_join_key10(series: pd.Series) -> pd.Series:
-            try:
-                s = series.astype(str).str.replace(r"\D", "", regex=True).str.lstrip('0')
-                s = s.map(lambda x: (x[-10:] if len(x) > 10 else x))
-                return s.where(s != '', '0')
-            except Exception:
-                return series.astype(str)
-
         for key in candidate_keys:
             if key not in source_data or source_data[key].empty:
                 missing_sources.append(key)
@@ -1100,8 +1166,15 @@ class AT12TransformationEngine(TransformationEngine):
             if not numcol or numcol not in at03_df.columns:
                 self.logger.warning(f"FACILIDAD_FROM_AT03 skipped: account column not found in {key}")
                 continue
-            normalized = _normalize_join_key10(at03_df[numcol])
-            available_sets.append(set(normalized.dropna().astype(str).tolist()))
+            normalized = self._normalize_join_key(at03_df[numcol])
+            cleaned = {str(val) for val in normalized.dropna() if str(val).strip() != ''}
+            if not cleaned:
+                message = f"FACILIDAD_FROM_AT03 skipped: no usable account values found in {key}"
+                if require:
+                    raise RuntimeError(message)
+                self.logger.warning(message)
+                continue
+            available_sets.append(cleaned)
 
         if missing_sources:
             msg = ", ".join(missing_sources)
@@ -1130,7 +1203,7 @@ class AT12TransformationEngine(TransformationEngine):
             return df
 
         # Normalize keys
-        left_keys = _normalize_join_key10(df[loan_col])
+        left_keys = self._normalize_join_key(df[loan_col])
 
         # Determine presence across all available datasets (intersection by default)
         import pandas as _pd
@@ -1138,17 +1211,19 @@ class AT12TransformationEngine(TransformationEngine):
         any_mask = _pd.Series(False, index=df.index)
         for key_set in available_sets:
             isin = left_keys.isin(key_set)
+            isin = isin.fillna(False)
             present_mask &= isin
             any_mask |= isin
 
         # Build proposed values Series aligned to df
         new_vals = _pd.Series(_pd.NA, index=df.index, dtype=object)
         # If intersection finds no matches but union finds some, fall back to union
-        if int(present_mask.sum()) == 0 and int(any_mask.sum()) > 0:
+        union_matches = int(any_mask.sum())
+        if int(present_mask.sum()) == 0 and union_matches > 0:
             try:
                 self.logger.warning(
                     f"FACILIDAD_FROM_AT03 ({subtype}): no intersection matches across sources; "
-                    f"falling back to union criteria"
+                    f"falling back to union criteria (matches={union_matches})"
                 )
             except Exception:
                 pass
@@ -1309,6 +1384,12 @@ class AT12TransformationEngine(TransformationEngine):
             df = df.sort_values(['Fecha', 'Codigo_Banco', 'Numero_Prestamo', 'Numero_Ruc_Garantia'], ascending=True)
         except Exception:
             pass
+
+        df = self._enforce_dot_decimal_strings(
+            df,
+            ('Valor_Inicial', 'Valor_Garantia', 'Valor_Ponderado', 'Importe')
+        )
+
         return df
     
     def _generate_numero_garantia_tdc(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
@@ -1316,7 +1397,7 @@ class AT12TransformationEngine(TransformationEngine):
 
         - Target column: 'Número_Garantía' (exact accent and casing).
         - Key for assignment: (Id_Documento, Tipo_Facilidad).
-        - Sequential from 855500; reuse for repeated keys within the run.
+        - Sequential from 850500; reuse for repeated keys within the run.
         - Output formatting: always 10 digits (left‑padded with zeros) when numeric.
         - Preserve original non-empty values (normalize to 10 digits only if purely numeric).
         - No incidences emitted; logging only.
@@ -1368,10 +1449,11 @@ class AT12TransformationEngine(TransformationEngine):
             # Assign by key using sequential registry (overwrite any existing value); no padding
             if unique_key not in unique_keys:
                 unique_keys[unique_key] = next_number
-                assigned = str(next_number)
                 next_number += 1
-            else:
-                assigned = str(unique_keys[unique_key])
+            assigned_num = unique_keys[unique_key]
+            assigned = str(assigned_num)
+            if assigned.isdigit():
+                assigned = assigned.zfill(10)
             df.at[idx, target_col] = assigned
             incidences.append({
                 'Index': idx,
@@ -1430,6 +1512,85 @@ class AT12TransformationEngine(TransformationEngine):
                     df.drop(columns=[target_col], inplace=True, errors='ignore')
             except Exception:
                 pass
+        return df
+
+    def _finalize_tdc_output(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Finalize TDC output layout: trim fields, standardize headers, enforce schema order."""
+        if df is None or df.empty:
+            return df
+
+        df = df.copy()
+
+        rename_map = {}
+        mapping_pairs = [
+            ('Fecha_Ultima_Actualizacion', 'Fecha_Última_Actualización'),
+            ('Valor_Garantia', 'Valor_Garantía'),
+            ('Codigo_Region', 'Código_Región'),
+            ('Numero_Garantia', 'Número_Garantía'),
+            ('Numero_Cis_Garantia', 'Número_Cis_Garantía'),
+            ('Descripcion de la Garantia', 'Descripción de la Garantía'),
+            ('Descripción de la Garantia', 'Descripción de la Garantía'),
+            ('Descripcion_de_la_Garantia', 'Descripción de la Garantía'),
+            ('Pais_Emision', 'País_Emisión')
+        ]
+        for source, target in mapping_pairs:
+            if source in df.columns and target not in df.columns:
+                rename_map[source] = target
+        if rename_map:
+            df.rename(columns=rename_map, inplace=True)
+
+        # Guarantee column presence with proper accents
+        if 'País_Emisión' not in df.columns:
+            df['País_Emisión'] = ''
+        df['País_Emisión'] = '591'
+
+        # Trim sensitive identifiers to remove stray spaces
+        def _strip_or_blank(val: Any) -> str:
+            if pd.isna(val):
+                return ''
+            return str(val).strip()
+
+        for col in ('Número_Cis_Garantía', 'Numero_Cis_Garantia', 'Número_Garantía', 'Numero_Garantia', 'Número_Cis_Prestamo', 'Numero_Cis_Prestamo'):
+            if col in df.columns:
+                df[col] = df[col].map(_strip_or_blank)
+
+        if 'Número_Garantía' in df.columns:
+            df['Número_Garantía'] = df['Número_Garantía'].map(
+                lambda val: '' if val == '' else (val.zfill(10) if val.isdigit() else val)
+            )
+
+        # Ensure description column exists even if original file omitted it
+        if 'Descripción de la Garantía' not in df.columns:
+            df['Descripción de la Garantía'] = ''
+
+        # Harmonize Codigo_Banco accent if needed
+        if 'Codigo_Banco' in df.columns and 'Código_Banco' not in df.columns:
+            df['Código_Banco'] = df['Codigo_Banco']
+
+        # Harmonize Valor_Garantia non-accented variant
+        if 'Valor_Garantía' not in df.columns and 'Valor_Garantia' in df.columns:
+            df['Valor_Garantía'] = df['Valor_Garantia']
+
+        try:
+            from src.core.header_mapping import HeaderMapper as _HM
+            expected_cols = list(_HM.TDC_AT12_EXPECTED)
+        except Exception:
+            expected_cols = [
+                'Fecha', 'Código_Banco', 'Número_Préstamo', 'Número_Ruc_Garantía', 'Id_Fideicomiso',
+                'Nombre_Fiduciaria', 'Origen_Garantía', 'Tipo_Garantía', 'Tipo_Facilidad', 'Id_Documento',
+                'Nombre_Organismo', 'Valor_Inicial', 'Valor_Garantía', 'Valor_Ponderado', 'Tipo_Instrumento',
+                'Calificación_Emisor', 'Calificación_Emisión', 'País_Emisión', 'Fecha_Última_Actualización',
+                'Fecha_Vencimiento', 'Tipo_Poliza', 'Código_Región', 'Número_Garantía', 'Número_Cis_Garantía',
+                'Moneda', 'Importe', 'Descripción de la Garantía'
+            ]
+
+        # Add any missing expected column as blank strings
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = ''
+
+        df = df[expected_cols]
+
         return df
     
     def _apply_date_mapping_tdc(self, df: pd.DataFrame, context: TransformationContext, 

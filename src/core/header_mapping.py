@@ -51,13 +51,7 @@ class HeaderMapper:
         'Número_Cis_Garantía',
         'Moneda',
         'Importe',
-        'Descripción de la Garantía',
-        'ACMON',
-        'ACIMP2',
-        'ACNGA',
-        'ACCIS',
-        'LIMITE',
-        'SALDO'
+        'Descripción de la Garantía'
     ]
 
     # Build a normalization helper (uppercase normalized form) for consistent lookups

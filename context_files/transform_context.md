@@ -171,11 +171,11 @@ This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facili
 *   **Scope:** Applies to `TDC_AT12` and `SOBREGIRO_AT12`; each with its source. Skip if the required auxiliary file is not available.
 *   **Detailed Process (Logic):**
     - `TDC_AT12` with `AT03_TDC`:
-        1. Normalize keys on both sides: `Numero_Prestamo` and `num_cta` to digits‑only, no leading zeros.
+        1. Normalize keys on both sides by stripping non-digits and leading zeros (no truncation of significant digits; blanks stay unmatched).
         2. Rule: if `Numero_Prestamo` (normalized) ∈ `AT03_TDC.num_cta` (normalized) ⇒ `Tipo_Facilidad='01'`; otherwise `'02'`.
         3. Update only if the value changes. Incidence: export changed rows to `FACILIDAD_FROM_AT03_TDC_AT12_[YYYYMMDD].csv` with `Tipo_Facilidad_ORIGINAL`.
     - `SOBREGIRO_AT12` with `AT03_CREDITOS`:
-        1. Normalize keys on both sides: `Numero_Prestamo` and `num_cta` to digits‑only, no leading zeros.
+        1. Apply the same normalization rule (`Numero_Prestamo`/`num_cta` → digits only, no suffix slicing, empty keys remain unmatched).
         2. Rule: if `Numero_Prestamo` (normalized) ∈ `AT03_CREDITOS.num_cta` (normalized) ⇒ `Tipo_Facilidad='01'`; otherwise `'02'`.
         3. Update only if the value changes. Incidence: export changed rows to `FACILIDAD_FROM_AT03_SOBREGIRO_AT12_[YYYYMMDD].csv` with `Tipo_Facilidad_ORIGINAL`.
 
@@ -186,7 +186,7 @@ This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facili
         *   Key: (`Id_Documento`, `Tipo_Facilidad`).
         *   Assignment: sequence starting at 850,500 per run; the first occurrence assigns, repeats reuse.
         *   Overwrite: always replaces the source file value (the original is not preserved).
-        *   Format: if numeric, present with padding to 10 digits.
+        *   Format: output zero‑padded 10-digit strings whenever the generated value is numeric.
         *   Duplicates by `Numero_Prestamo` within the same key: log only (no incidences).
     2.  **Date Mapping (no day/month inversion):**
         *   JOIN `Id_Documento` (TDC) ↔ `identificacion_de_cuenta` (AT02) with normalized keys (digits‑only, no leading zeros).
@@ -200,14 +200,15 @@ This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facili
             - (`Id_Documento`, `Tipo_Facilidad`).
         *   Normalize key parts (digits‑only/trim) to avoid false positives/negatives.
         *   Export: `INC_REPEATED_CARD_TDC_AT12_[YYYYMMDD].csv`.
+    4.  **Output shaping:** enforce dot-decimal strings (e.g., `18000.00`), trim CIS/guarantee identifiers, set `País_Emisión = '591'` and drop auxiliary accounting columns (`ACMON`, `ACIMP2`, `ACNGA`, `ACCIS`, `LIMITE`, `SALDO`) so the layout ends at `Descripción de la Garantía`.
 
 *Example `Numero_Garantia` (per run)*
 
 | Id_Documento | Numero_Prestamo | Tipo_Facilidad | Numero_Garantia |
 | --- | --- | --- | --- |
-| 10000 | 012312 | 01 | 855500 |
-| 10000 | 012313 | 01 | 855500 |
-| 10000 | 012314 | 02 | 855501 |
+| 10000 | 012312 | 01 | 0000850500 |
+| 10000 | 012313 | 01 | 0000850500 |
+| 10000 | 012314 | 02 | 0000850501 |
 
 2.2. `SOBREGIRO_AT12` (Overdrafts) Processing
 Objective: To enrich the overdraft data by assigning the correct facility type (Tipo_Facilidad) and updating key dates from the master accounts file.
@@ -230,6 +231,8 @@ Detailed Process (Logic):
     * Incidence Reporting:
         * Any record whose dates are modified during the "Date Mapping" step is exported to a dedicated incident file.
         * File Name: DATE_MAPPING_CHANGES_SOBREGIRO_[YYYYMMDD].csv. Content: includes all columns of the modified rows, plus additional columns to preserve the original values for traceability: Fecha_Ultima_Actualizacion_ORIGINAL and Fecha_Vencimiento_ORIGINAL.
+
+Post-processing trims stray spaces in `Numero_Garantia`/`Numero_Cis_Garantia`, forces `Pais_Emision='591'` when present, and leaves all monetary fields with dot decimal notation (two digits) without thousand separators.
 
 **2.3. `VALORES_AT12` (Securities) Generation**
 *   **Objective:** Build the final VALORES dataset with the regulatory layout, enforcing 0507-specific rules.

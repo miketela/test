@@ -67,13 +67,7 @@
     "Número_Cis_Garantía": null,
     "Moneda": null,
     "Importe": null,
-    "Descripción de la Garantía": null,
-    "ACMON": null,
-    "ACIMP2": null,
-    "ACNGA": null,
-    "ACCIS": null,
-    "LIMITE": null,
-    "SALDO": null
+    "Descripción de la Garantía": null
   },
   "VALORES_AT12": {
     "Fecha": null,

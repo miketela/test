@@ -1,6 +1,7 @@
 {
   "AT03": {
     "order_strict": false,
+    "join_keys": ["num_cta"],
     "columns": [
       "fec_proceso",
       "cod_banco",
@@ -91,6 +92,7 @@
   ,
   "AT03_TDC": {
     "order_strict": false,
+    "join_keys": ["num_cta"],
     "columns": [
       "fec_proceso",
       "cod_banco",
