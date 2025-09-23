@@ -379,6 +379,86 @@ class AT12TransformationEngine(TransformationEngine):
                     pass
         return df
 
+    def _sanitize_output_whitespace(self, df: pd.DataFrame, subtype: str = "") -> pd.DataFrame:
+        """Strip leading/trailing whitespace and remove hidden space-like symbols before export."""
+        if df is None or df.empty:
+            return df
+
+        import re as _re
+        df = df.copy()
+
+        replacements = {
+            '\u00a0': ' ',  # non-breaking space
+            '\u1680': ' ',
+            '\u180e': ' ',
+            '\u2000': ' ',
+            '\u2001': ' ',
+            '\u2002': ' ',
+            '\u2003': ' ',
+            '\u2004': ' ',
+            '\u2005': ' ',
+            '\u2006': ' ',
+            '\u2007': ' ',
+            '\u2008': ' ',
+            '\u2009': ' ',
+            '\u200a': ' ',
+            '\u202f': ' ',
+            '\u205f': ' ',
+            '\u3000': ' ',
+            '\u200b': '',  # zero width space
+            '\u200c': '',
+            '\u200d': '',
+            '\ufeff': '',
+            '\u00ad': '',  # soft hyphen
+            '\u00ff': '',  # y with diaeresis
+            '\u0178': ''   # Y with diaeresis
+        }
+
+        disallowed_pattern = _re.compile(r"[\u00a0\u1680\u180e\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff\u00ad\u00ff\u0178]")
+
+        text_columns = [
+            col for col in df.columns
+            if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col])
+        ]
+
+        total_modifications = 0
+        for col in text_columns:
+            series = df[col]
+            try:
+                str_series = series.astype('string')
+            except Exception:
+                str_series = series.astype(str)
+            str_series = str_series.fillna('')
+            original = str_series.copy()
+            for target, replacement in replacements.items():
+                str_series = str_series.str.replace(target, replacement, regex=False)
+            str_series = str_series.str.strip()
+
+            diff_mask = original != str_series
+            total_modifications += int(diff_mask.sum())
+
+            df[col] = str_series.astype(object)
+
+            leftover_mask = str_series.str.contains(disallowed_pattern, na=False)
+            if leftover_mask.any():
+                sample = str_series[leftover_mask].iloc[0]
+                msg = (
+                    f"Output sanitization failed for {subtype or 'UNKNOWN'} column {col}: "
+                    f"disallowed whitespace character detected (value={repr(sample)})"
+                )
+                self.logger.error(msg)
+                raise RuntimeError(msg)
+
+        if total_modifications > 0:
+            try:
+                self.logger.info(
+                    f"Sanitized {total_modifications} value(s) with stray whitespace for {subtype or 'output'}"
+                )
+            except Exception:
+                pass
+
+        return df
+
     def _zero_out_valor_ponderado(self, df: pd.DataFrame) -> pd.DataFrame:
         """Set any Valor_Ponderado/valor_ponderado column to literal '0' (string).
 
@@ -2479,7 +2559,14 @@ class AT12TransformationEngine(TransformationEngine):
                         out_df = self._enforce_dot_decimal(out_df)
                     except Exception:
                         pass
-                    
+
+                    try:
+                        out_df = self._sanitize_output_whitespace(out_df, subtype=subtype)
+                    except Exception as e:
+                        if hasattr(result, 'errors'):
+                            result.errors.append(str(e))
+                        raise
+
                     # Generate filename for this subtype
                     subtype_filename = self._filename_parser.generate_output_filename(
                         atom=subtype,

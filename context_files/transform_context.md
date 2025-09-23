@@ -319,6 +319,7 @@ This is a critical stage of the ETL pipeline where financial validations are per
             *   **Header:** Do **not** include the column names in the output file.
             *   **File Path:** Save to the `consolidated/` directory.
             *   **Decimals:** Monetary fields use dot (`.`) as decimal separator (no comma).
+    5.  **Sanitization (applies to all subtypes):** Before writing any TXT, strip leading/trailing whitespace across every column and remove hidden space characters (NBSP, zero-width, `ÿ`, etc.) so no record carries special spacing glyphs into the consolidated delivery.
 
 *   **Final Action (Output):** Four headerless `.txt` files are created in the `consolidated/` directory, each with its specific delimiter, representing the final output of the ETL pipeline. Internal helper columns (e.g., `__num`) are not included; all monetary fields are normalized to dot decimals across RAW, processed and consolidated outputs.
 

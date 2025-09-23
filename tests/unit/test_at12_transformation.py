@@ -301,7 +301,20 @@ class TestAT12TransformationEngine:
         assert finalized.at[0, 'Número_Cis_Garantía'] == '12345'
         assert finalized.at[0, 'Número_Garantía'] == '0000850500'
         assert 'ACMON' not in finalized.columns
-    
+
+    def test_sanitize_output_whitespace(self, engine):
+        df = pd.DataFrame({
+            'col1': ['  valor\u00a0', 'ÿdato', None],
+            'col2': ['texto', '\u2007espacio', '\u200b']
+        })
+
+        clean_df = engine._sanitize_output_whitespace(df, subtype='TEST')
+
+        assert clean_df.at[0, 'col1'] == 'valor'
+        assert clean_df.at[1, 'col1'] == 'dato'
+        assert clean_df.at[1, 'col2'] == 'espacio'
+        assert clean_df.at[2, 'col2'] == ''
+
     def test_stage4_validation_functionality(self, engine):
         """Test stage 4 validation functionality."""
         # Test that the stage 4 method exists
