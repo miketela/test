@@ -298,17 +298,58 @@ class TransformationEngine(ABC):
             self.logger.error(f"Failed to save DataFrame to {file_path}: {str(e)}")
             return False
 
-    def _save_dataframe_as_excel(self, df: pd.DataFrame, file_path: Path, *, sheet_name: str = 'Sheet1') -> bool:
-        """Save DataFrame as Excel with consistent formatting."""
-        try:
-            file_path.parent.mkdir(parents=True, exist_ok=True)
+    def _save_dataframe_as_excel(self, df: pd.DataFrame, file_path: Path, *, sheet_name: str = 'Sheet1') -> Optional[Path]:
+        """Save DataFrame as Excel with consistent formatting.
 
-            with pd.ExcelWriter(file_path, engine=self.config.get('excel_engine', 'openpyxl')) as writer:
+        Returns the path used for the output when successful. In case of a
+        `PermissionError` (common on Windows when the file is open), a fallback
+        filename suffixed with the current run-id is attempted automatically.
+        """
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        config_get = getattr(self.config, 'get', None)
+        if callable(config_get):
+            engine = config_get('excel_engine', 'openpyxl')
+        else:
+            engine = getattr(self.config, 'excel_engine', 'openpyxl')
+
+        try:
+            with pd.ExcelWriter(file_path, engine=engine) as writer:
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
 
             self.logger.info(f"Saved {len(df)} records to {file_path}")
-            return True
+            return file_path
+
+        except PermissionError as err:
+            run_id = getattr(self, '_current_run_id', None)
+            if not run_id:
+                self.logger.error(f"Failed to save DataFrame to {file_path}: {err}")
+                return None
+
+            safe_run = str(run_id).strip().replace(' ', '_') or 'run'
+            suffix = file_path.suffix or '.xlsx'
+            fallback_name = f"{file_path.stem}__run-{safe_run}{suffix}"
+            fallback_path = file_path.with_name(fallback_name)
+
+            self.logger.warning(
+                f"Permission denied writing {file_path} (file may be open). "
+                f"Attempting fallback path {fallback_path}."
+            )
+
+            try:
+                with pd.ExcelWriter(fallback_path, engine=engine) as writer:
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                self.logger.info(
+                    f"Saved {len(df)} records to {fallback_path} (fallback due to permission error on {file_path})"
+                )
+                return fallback_path
+
+            except Exception as fallback_err:
+                self.logger.error(
+                    f"Failed to save DataFrame to {file_path} and fallback {fallback_path}: {fallback_err}"
+                )
+                return None
 
         except Exception as e:
             self.logger.error(f"Failed to save DataFrame to {file_path}: {str(e)}")
-            return False
+            return None

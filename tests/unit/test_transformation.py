@@ -165,6 +165,32 @@ class TestTransformationEngine:
         assert isinstance(result, TransformationResult)
         assert result.total_files_processed >= 0
 
+    def test_save_dataframe_as_excel_permission_fallback(self, temp_dir):
+        """Ensure Excel writer falls back to run-specific filename on permission error."""
+        from src.core.config import Config
+
+        engine = ConcreteTransformationEngine(config=Config())
+        engine._current_run_id = '202508'
+
+        df = pd.DataFrame({'col': [1, 2, 3]})
+        target_path = temp_dir / 'output.xlsx'
+
+        original_excel_writer = pd.ExcelWriter
+        call_counter = {'count': 0}
+
+        def excel_writer_side_effect(*args, **kwargs):
+            call_counter['count'] += 1
+            if call_counter['count'] == 1:
+                raise PermissionError('locked')
+            return original_excel_writer(*args, **kwargs)
+
+        with patch('src.core.transformation.pd.ExcelWriter', side_effect=excel_writer_side_effect):
+            saved_path = engine._save_dataframe_as_excel(df, target_path, sheet_name='TEST')
+
+        assert saved_path is not None
+        assert saved_path.name == 'output__run-202508.xlsx'
+        assert saved_path.exists()
+
 
 @pytest.fixture
 def temp_dir(tmp_path):

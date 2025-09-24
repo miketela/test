@@ -902,7 +902,10 @@ class AT12TransformationEngine(TransformationEngine):
             warnings=[]
         )
         transformed_data = {}
-        
+
+        previous_run_id = getattr(self, '_current_run_id', None)
+        self._current_run_id = getattr(context, 'run_id', None)
+
         try:
             # Process each data subtype
             for subtype, df in source_data.items():
@@ -935,6 +938,9 @@ class AT12TransformationEngine(TransformationEngine):
             result.message = error_msg
             self.logger.error(error_msg, exc_info=True)
         
+        finally:
+            self._current_run_id = previous_run_id
+
         return result
     
 
@@ -2606,9 +2612,10 @@ class AT12TransformationEngine(TransformationEngine):
                 result.errors.append(str(exc))
                 raise
 
-            if self._save_dataframe_as_excel(df_processed, processed_path, sheet_name=subtype):
-                result.processed_files.append(processed_path)
-                self.logger.info(f"Generated processed file: {processed_path}")
+            saved_path = self._save_dataframe_as_excel(df_processed, processed_path, sheet_name=subtype)
+            if saved_path:
+                result.processed_files.append(saved_path)
+                self.logger.info(f"Generated processed file: {saved_path}")
     
     def _generate_consolidated_file(self, context: TransformationContext, 
                                   transformed_data: Dict[str, pd.DataFrame], 
