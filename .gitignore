@@ -218,3 +218,11 @@ data/processed/**/*.xlsx
 data/processed/**/*.XLSX
 metrics/**/*.csv
 metrics/**/*.CSV
+
+# Test artifacts
+tests/**/*.csv
+tests/**/*.CSV
+tests/**/*.txt
+tests/**/*.TXT
+tests/**/*.xlsx
+tests/**/*.XLSX
