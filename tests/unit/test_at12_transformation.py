@@ -356,6 +356,17 @@ class TestAT12TransformationEngine:
         assert clean_df.at[0, 'col2'] == '¿Qué?'
         assert clean_df.at[2, 'col2'] == 'Árbol'
 
+    def test_zero_out_valor_ponderado_sets_two_decimals(self, engine):
+        df = pd.DataFrame({
+            'Valor_Ponderado': ['123', '0.5'],
+            'valor_ponderado': ['999', '-1']
+        })
+
+        out = engine._zero_out_valor_ponderado(df)
+
+        assert (out['Valor_Ponderado'] == '0.00').all()
+        assert (out['valor_ponderado'] == '0.00').all()
+
     def test_stage4_validation_functionality(self, engine):
         """Test stage 4 validation functionality."""
         # Test that the stage 4 method exists

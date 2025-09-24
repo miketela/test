@@ -481,7 +481,7 @@ class AT12TransformationEngine(TransformationEngine):
         return df
 
     def _zero_out_valor_ponderado(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Set any Valor_Ponderado/valor_ponderado column to literal '0' (string).
+        """Set any Valor_Ponderado/valor_ponderado column to literal '0.00' (string).
 
         Applies case-insensitively, and does not create columns if absent.
         """
@@ -492,7 +492,7 @@ class AT12TransformationEngine(TransformationEngine):
         for col in list(df.columns):
             try:
                 if _re.fullmatch(r"(?i)valor_ponderado", str(col).strip(), flags=_re.IGNORECASE):
-                    df[col] = '0'
+                    df[col] = '0.00'
             except Exception:
                 continue
         return df
