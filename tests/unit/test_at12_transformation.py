@@ -343,6 +343,19 @@ class TestAT12TransformationEngine:
         assert clean_df.at[1, 'col2'] == 'espacio'
         assert clean_df.at[2, 'col2'] == ''
 
+    def test_sanitize_output_whitespace_repairs_mojibake(self, engine):
+        df = pd.DataFrame({
+            'col1': ['SeÃ±orita', 'data Ã¿ test', 'NORMAL'],
+            'col2': ['Â¿Qué?', None, 'Árbol']
+        })
+
+        clean_df = engine._sanitize_output_whitespace(df, subtype='TEST')
+
+        assert clean_df.at[0, 'col1'] == 'Señorita'
+        assert clean_df.at[1, 'col1'] == 'data test'
+        assert clean_df.at[0, 'col2'] == '¿Qué?'
+        assert clean_df.at[2, 'col2'] == 'Árbol'
+
     def test_stage4_validation_functionality(self, engine):
         """Test stage 4 validation functionality."""
         # Test that the stage 4 method exists

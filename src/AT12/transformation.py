@@ -412,10 +412,28 @@ class AT12TransformationEngine(TransformationEngine):
             '\ufeff': '',
             '\u00ad': '',  # soft hyphen
             '\u00ff': '',  # y with diaeresis
-            '\u0178': ''   # Y with diaeresis
+            '\u0178': '',  # Y with diaeresis
+            'Â¿': '¿',
+            'Â¡': '¡'
         }
 
         disallowed_pattern = _re.compile(r"[\u00a0\u1680\u180e\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff\u00ad\u00ff\u0178]")
+
+        suspect_tokens = ('Ã', 'Â', '¤', '¢')
+
+        def _repair_mojibake(value: str) -> str:
+            if value is None or not isinstance(value, str):
+                return value
+            if not any(token in value for token in suspect_tokens):
+                return value
+            try:
+                repaired = value.encode('latin-1').decode('utf-8')
+            except UnicodeError:
+                return value
+            # Only adopt the repaired string if it reduced mojibake patterns
+            if any(token in repaired for token in suspect_tokens):
+                return value
+            return repaired
 
         text_columns = [
             col for col in df.columns
@@ -430,10 +448,12 @@ class AT12TransformationEngine(TransformationEngine):
             except Exception:
                 str_series = series.astype(str)
             str_series = str_series.fillna('')
+            str_series = str_series.apply(_repair_mojibake)
             original = str_series.copy()
             for target, replacement in replacements.items():
                 str_series = str_series.str.replace(target, replacement, regex=False)
             str_series = str_series.str.strip()
+            str_series = str_series.str.replace(r'\s{2,}', ' ', regex=True)
 
             diff_mask = original != str_series
             total_modifications += int(diff_mask.sum())
