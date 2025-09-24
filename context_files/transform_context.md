@@ -38,6 +38,11 @@ The AT12 transformation is executed as a single ETL pipeline, organized into seq
 #### **Stage 1: Initial Data Cleansing and Formatting**
 This initial stage focuses on correcting structural and format errors in the `BASE_AT12` file to prepare it for subsequent business logic.
 
+**1.0. Base Fecha Standardization**
+- Objective: Ensure the `Fecha` column in `BASE_AT12` reflects the official cut-off date for the reporting month.
+- Process: For every row, overwrite `Fecha` with the last calendar day of the processing month (computed from the transformation context — e.g., `20240131`).
+- Output: `Fecha` is always a `YYYYMMDD` string matching the month-end date for the current run.
+
 **1.1. EEOR TABULAR: Whitespace Errors**
 *   **Objective:** To standardize text fields by removing unnecessary spaces that cause errors in data joins or length validations.
 *   **Input Identification:** Any text-based field within the `BASE_AT12` table (e.g., `Id_Documento`, `Nombre_Organismo`, `Numero_Prestamo`).
@@ -45,6 +50,7 @@ This initial stage focuses on correcting structural and format errors in the `BA
     1.  Remove all leading spaces (from the beginning of the string).
     2.  Remove all trailing spaces (from the end of the string).
     3.  Replace any sequence of two or more spaces in the middle of the field with a single space.
+    4.  Additional sub-rule (BASE_AT12 only): replace the literal character `'Y'` with `'/'` inside `Id_Documento` to correct misplaced separators from source files.
 *   **Final Action (Output):** The field is cleaned of all excess whitespace.
 
 **1.2. ERROR_0301: Id_Documento Validation and Correction (Tipo_Garantia = '0301') — Right→Left**
@@ -136,11 +142,12 @@ This initial stage focuses on correcting structural and format errors in the `BA
 - Join Keys: Join with `GARANTIA_AUTOS_AT12` on `Numero_Prestamo` = `numcred` using normalized keys (digits only, no leading zeros). Output preserves the original formatting of `Numero_Prestamo` (no reformatting is applied).
 - Updates (on successful match):
   - Id_Documento: overwrite with `num_poliza` (always, even if it had a prior value).
-  - Importe and Valor_Garantia: replace with the policy amount (if available).
+  - Importe and Valor_Garantia: replace with the policy `monto_asegurado` (preferred) or the best available monetary field in `GARANTIA_AUTOS_AT12`.
   - Fecha_Última_Actualización: replace with policy `Fecha_inicio`.
   - Fecha_Vencimiento: replace with policy `Fecha_Vencimiento`.
-- Constraint: Accept any non-empty `num_poliza` (may include dashes/letters/symbols). If `num_poliza` is empty, do not update.
- - Exclusions: If `monto_asegurado` in `GARANTIA_AUTOS_AT12` equals any of {"Nuevo Desembolso", "PERDIDA TOTAL", "FALLECIDO"} (case-insensitive), skip all updates for that match and keep original values in `AT12_BASE` (including `Id_Documento`, dates, and amounts).
+- Default handling: If the join does not find a policy or `num_poliza` is empty, set `Id_Documento = '01'` to signal a missing policy reference.
+- Additional normalization: When the resulting `Tipo_Poliza` is `'NA'`, assign the default `'01'`.
+- Constraint: Accept any non-empty `num_poliza` (may include dashes/letters/symbols). If `monto_asegurado` equals any of {"Nuevo Desembolso", "PERDIDA TOTAL", "FALLECIDO"} (case-insensitive), only update identification/dates (amounts remain unchanged).
 
 **1.10. Property without Appraiser**
 *   **Objective:** To assign an organization code to properties that are missing it.
@@ -364,8 +371,8 @@ These clarifications and rules are incorporated into the unified pipeline and ex
   - Incidences: `EXCLUDE_SOBREGIROS_BASE_<YYYYMMDD>.csv` with the removed rows.
 
 - BASE — Obsolete Trustee Code (Stage 1a):
-  - Rule: replace `Id_Fiduciaria=508` with `528`.
-  - Incidences: `FIDUCIARIA_CODE_UPDATE_<YYYYMMDD>.csv` with adjacent `Codigo_Fiduciaria_ORIGINAL`.
+  - Rule: when the trustee name column (`Nombre_fiduciaria` or `Nombre_Fiduciaria`) equals `508`, replace it with `528`.
+  - Incidences: `FIDUCIARIA_CODE_UPDATE_<YYYYMMDD>.csv` with the original trustee value adjacent to the corrected one.
 
 - BASE — `Id_Documento` padding (last rule of Stage 1):
   - If `Id_Documento` is purely digits and length < 10, apply `zfill(10)`.

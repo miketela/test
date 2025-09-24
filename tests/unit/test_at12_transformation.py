@@ -860,16 +860,17 @@ class TestAT12TransformationEngine:
             'Importe': ['1500.00'],
             'Valor_Garantia': ['1500.00'],
             'Fecha_Ultima_Actualizacion': ['20240101'],
-            'Fecha_Vencimiento': ['20240131']
+            'Fecha_Vencimiento': ['20240131'],
+            'Tipo_Poliza': ['NA']
         })
 
         autos_df = pd.DataFrame({
             'numcred': ['605248'],  # normalized join key should match loan id
             'num_poliza': ['AUTO-XYZ-01'],
-            'Valor_Garantia': ['2500.00'],
+            'monto_asegurado': ['7500'],
             'Fecha_Inicio': ['20231215'],
             'Fecha_Vencimiento': ['20241214'],
-            'monto_asegurado': ['7500']
+            'Valor_Garantia': ['2500.00']
         })
 
         source_data = {'GARANTIA_AUTOS_AT12': autos_df}
@@ -877,10 +878,35 @@ class TestAT12TransformationEngine:
         transformed = engine._apply_error_poliza_auto_correction(base_df, base_context, source_data)
 
         assert transformed.loc[0, 'Id_Documento'] == 'AUTO-XYZ-01'
-        assert transformed.loc[0, 'Importe'] == '2500.00'
-        assert transformed.loc[0, 'Valor_Garantia'] == '2500.00'
+        assert transformed.loc[0, 'Importe'] == '7500'
+        assert transformed.loc[0, 'Valor_Garantia'] == '7500'
         assert transformed.loc[0, 'Fecha_Ultima_Actualizacion'] == '20231215'
         assert transformed.loc[0, 'Fecha_Vencimiento'] == '20241214'
+        assert transformed.loc[0, 'Tipo_Poliza'] == '01'
+
+    @pytest.mark.unit
+    def test_auto_policy_defaults_when_no_match(self, engine, base_context):
+        """Missing policy numbers default Id_Documento and Tipo_Poliza placeholders."""
+        engine._export_error_subset = Mock()
+
+        base_df = pd.DataFrame({
+            'Tipo_Garantia': ['0103'],
+            'Id_Documento': [''],
+            'Numero_Prestamo': ['0000123456'],
+            'Tipo_Poliza': ['NA']
+        })
+
+        autos_df = pd.DataFrame({
+            'numcred': ['999999'],
+            'num_poliza': ['']
+        })
+
+        source_data = {'GARANTIA_AUTOS_AT12': autos_df}
+
+        transformed = engine._apply_error_poliza_auto_correction(base_df, base_context, source_data)
+
+        assert transformed.loc[0, 'Id_Documento'] == '01'
+        assert transformed.loc[0, 'Tipo_Poliza'] == '01'
 
     @pytest.mark.unit
     def test_codigo_fiduciaria_update_changes_508_to_528(self, engine, base_context):
@@ -888,13 +914,14 @@ class TestAT12TransformationEngine:
         engine._export_error_subset = Mock()
 
         df = pd.DataFrame({
-            'Id_Fiduciaria': ['A1', 'B2'],
-            'Nombre_fiduciaria': ['508', '600']
+            'Nombre_fiduciaria': ['508', '600'],
+            'Nombre_Fiduciaria': ['600', '508']
         })
 
         updated = engine._apply_codigo_fiduciaria_update(df, base_context, subtype='BASE_AT12')
 
         assert list(updated['Nombre_fiduciaria']) == ['528', '600']
+        assert list(updated['Nombre_Fiduciaria']) == ['600', '528']
 
     @pytest.mark.unit
     def test_eeor_tabular_cleaning_trims_whitespace(self, engine, base_context):
@@ -913,6 +940,25 @@ class TestAT12TransformationEngine:
         assert cleaned.loc[0, 'Numero_Prestamo'] == '12345'
         assert cleaned.loc[0, 'Id_Documento'] == '12 34 5'
         assert cleaned.loc[0, 'Nombre_Organismo'] == 'Fondo de Garantía'
+
+    @pytest.mark.unit
+    def test_base_fecha_standardization_sets_month_end(self, engine, base_context):
+        """Fecha must align to the last day of the processing month."""
+        df = pd.DataFrame({'Fecha': ['20240101', '20240115']})
+
+        updated = engine._apply_base_fecha_last_day(df, base_context, subtype='BASE_AT12')
+
+        assert list(updated['Fecha']) == ['20240131', '20240131']
+
+    @pytest.mark.unit
+    def test_id_documento_y_replacement(self, engine, base_context):
+        """Id_Documento should convert literal 'Y' separators to '/' for BASE."""
+        df = pd.DataFrame({'Id_Documento': ['28066Y110279', 'NOCHANGE']})
+
+        updated = engine._apply_id_documento_y_to_slash(df, base_context, subtype='BASE_AT12')
+
+        assert updated.loc[0, 'Id_Documento'] == '28066/110279'
+        assert updated.loc[1, 'Id_Documento'] == 'NOCHANGE'
 
     @pytest.mark.unit
     def test_inmuebles_sin_poliza_sets_defaults_for_0208(self, engine, base_context):
