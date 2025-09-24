@@ -825,11 +825,19 @@ class AT12TransformationEngine(TransformationEngine):
                 self.logger.info("Skipping FECHA_AVALUO_ERRADA: AT03_CREDITOS not available")
             except Exception:
                 pass
-        
+
+        if has_at02 and (subtype == 'BASE_AT12' or subtype == '' or subtype is None):
+            df = self._apply_date_mapping_base_0301(df, context, source_data)
+        elif (subtype == 'BASE_AT12' or subtype == '' or subtype is None):
+            try:
+                self.logger.info("Skipping BASE 0301 DATE MAPPING: AT02_CUENTAS not available")
+            except Exception:
+                pass
+
         # Apply corrections that require POLIZA_HIPOTECAS_AT12 (from source_data)
         df = self._apply_inmuebles_sin_poliza_correction(df, context, source_data)
         df = self._apply_error_poliza_auto_correction(df, context, source_data)
-        
+
         self.logger.info("Completed Phase 1b: Dependent operations")
         return df
     
@@ -3399,6 +3407,228 @@ class AT12TransformationEngine(TransformationEngine):
                 self.logger.info("EXCLUDE_SOBREGIROS_FROM_BASE: no candidates to remove")
             except Exception:
                 pass
+        return df
+
+    def _apply_date_mapping_base_0301(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Map BASE_AT12 date fields for Tipo_Garantia '0301' using AT02_CUENTAS.
+
+        - JOIN `Id_Documento` ↔ `identificacion_de_cuenta` with normalized keys (digits-only, no leading zeros).
+        - Deduplicate AT02 entries per normalized key preferring the most recent dates (day-first ordering).
+        - Update `Fecha_Ultima_Actualizacion`/`Fecha_Última_Actualización` with `Fecha_inicio` and `Fecha_Vencimiento` with
+          the corresponding value from AT02 when available. Strings are copied verbatim (no reformatting).
+        """
+        if df is None or df.empty:
+            return df
+        if 'AT02_CUENTAS' not in source_data or source_data['AT02_CUENTAS'].empty:
+            try:
+                self.logger.info("BASE 0301 DATE MAPPING: AT02_CUENTAS missing or empty; skipping")
+            except Exception:
+                pass
+            return df
+
+        at02_df = source_data['AT02_CUENTAS']
+
+        tg_col = 'Tipo_Garantia' if 'Tipo_Garantia' in df.columns else None
+        id_col = self._col_any(df, ['Id_Documento', 'ID_DOCUMENTO', 'id_documento'])
+        if not tg_col or not id_col:
+            try:
+                self.logger.info("BASE 0301 DATE MAPPING: missing Tipo_Garantia or Id_Documento; skipping")
+            except Exception:
+                pass
+            return df
+
+        at02_key = self._col_any(at02_df, ['identificacion_de_cuenta', 'Identificacion_de_cuenta', 'Identificacion_Cuenta', 'identificacion_cuenta'])
+        at02_start = self._col_any(at02_df, ['Fecha_inicio', 'Fecha_Inicio', 'fecha_inicio'])
+        at02_end = self._col_any(at02_df, ['Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento'])
+
+        missing = []
+        if not at02_key:
+            missing.append('identificacion_de_cuenta')
+        if not at02_start:
+            missing.append('Fecha_inicio')
+        if not at02_end:
+            missing.append('Fecha_Vencimiento')
+        if missing:
+            try:
+                self.logger.warning(f"BASE 0301 DATE MAPPING: AT02 missing required columns {missing}; skipping")
+            except Exception:
+                pass
+            return df
+
+        tg_norm = self._normalize_tipo_garantia_series(df[tg_col])
+        mask_0301 = tg_norm == '0301'
+        if not mask_0301.any():
+            try:
+                self.logger.info("BASE 0301 DATE MAPPING: no Tipo_Garantia 0301 records; skipping")
+            except Exception:
+                pass
+            return df
+
+        target_last_update_cols = [col for col in ('Fecha_Ultima_Actualizacion', 'Fecha_Última_Actualización') if col in df.columns]
+        target_venc_col = 'Fecha_Vencimiento' if 'Fecha_Vencimiento' in df.columns else None
+        if not target_last_update_cols and not target_venc_col:
+            try:
+                self.logger.info("BASE 0301 DATE MAPPING: no target date columns found; skipping")
+            except Exception:
+                pass
+            return df
+
+        df = df.copy()
+        original_columns: Dict[str, pd.Series] = {}
+        for col in target_last_update_cols + ([target_venc_col] if target_venc_col else []):
+            if col and col in df.columns:
+                original_columns[col] = df[col].copy()
+
+        # Prepare left side (BASE 0301 records)
+        left = df.loc[mask_0301, [id_col]].copy()
+        left['_row_index'] = left.index
+        left['_join_key'] = self._normalize_join_key(left[id_col])
+        left_valid = left.dropna(subset=['_join_key']).copy()
+        if left_valid.empty:
+            try:
+                self.logger.info("BASE 0301 DATE MAPPING: no 0301 rows with joinable Id_Documento; skipping")
+            except Exception:
+                pass
+            return df
+
+        # Prepare right side (AT02 records)
+        right = at02_df[[at02_key, at02_start, at02_end]].copy()
+        right.columns = ['_key_at02', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']
+        right['_join_key'] = self._normalize_join_key(right['_key_at02'])
+        right = right.dropna(subset=['_join_key'])
+        if right.empty:
+            try:
+                self.logger.info("BASE 0301 DATE MAPPING: AT02 has no joinable rows; skipping")
+            except Exception:
+                pass
+            return df
+
+        # Deduplicate AT02 by most recent dates (day-first ordering for tie-breaks)
+        try:
+            order_df = right.copy()
+            import pandas as _pd
+            for col in ['Fecha_inicio_at02', 'Fecha_Vencimiento_at02']:
+                order_df[f'{col}_dt'] = _pd.to_datetime(order_df[col], errors='coerce', dayfirst=True)
+            sort_cols = [c for c in ['Fecha_inicio_at02_dt', 'Fecha_Vencimiento_at02_dt'] if c in order_df.columns]
+            if sort_cols:
+                order_df = order_df.sort_values(sort_cols, ascending=False)
+            right_dedup = order_df.drop_duplicates(subset=['_join_key'], keep='first')[['_join_key', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']]
+        except Exception:
+            right_dedup = right.drop_duplicates(subset=['_join_key'], keep='first')[['_join_key', 'Fecha_inicio_at02', 'Fecha_Vencimiento_at02']]
+
+        merged = left_valid.merge(right_dedup, on='_join_key', how='left')
+        if merged.empty:
+            try:
+                self.logger.info("BASE 0301 DATE MAPPING: merge produced no matches; skipping")
+            except Exception:
+                pass
+            return df
+
+        def _normalize_value(value: object) -> Optional[str]:
+            text = str(value).strip()
+            if text in ('', 'nan', 'NaN', 'None', 'NaT'):
+                return None
+            return text
+
+        def _safe_index(raw_idx: Any) -> Any:
+            try:
+                if pd.isna(raw_idx):
+                    return raw_idx
+            except Exception:
+                pass
+            try:
+                return int(raw_idx)
+            except Exception:
+                return raw_idx
+
+        updated_rows: List[Any] = []
+        incidences: List[Dict[str, Any]] = []
+
+        for _, row in merged.iterrows():
+            new_inicio = _normalize_value(row.get('Fecha_inicio_at02'))
+            new_venc = _normalize_value(row.get('Fecha_Vencimiento_at02'))
+            if new_inicio is None and new_venc is None:
+                continue
+
+            idx = row['_row_index']
+            changed = False
+
+            if new_inicio is not None:
+                for col in target_last_update_cols:
+                    df.at[idx, col] = new_inicio
+                changed = True
+
+            if new_venc is not None and target_venc_col:
+                df.at[idx, target_venc_col] = new_venc
+                changed = True
+
+            if changed:
+                updated_rows.append(idx)
+                record_id = row.get(id_col)
+                incidences.append({
+                    'Index': _safe_index(idx),
+                    'Id_Documento': record_id,
+                    'Fecha_inicio_AT02': new_inicio or '',
+                    'Fecha_Vencimiento_AT02': new_venc or '',
+                    'Rule': 'BASE_0301_DATE_MAPPING_AT02'
+                })
+
+        if not updated_rows:
+            try:
+                self.logger.info("BASE 0301 DATE MAPPING: no rows updated after merge")
+            except Exception:
+                pass
+            return df
+
+        try:
+            self.logger.info(f"BASE 0301 DATE MAPPING: updated {len(updated_rows)} record(s) from AT02")
+        except Exception:
+            pass
+
+        if incidences:
+            self._store_incidences('BASE_0301_DATE_MAPPING_AT02', incidences, context)
+
+        try:
+            changed_mask = pd.Series(False, index=df.index)
+            changed_cols: List[str] = []
+            for col, original_series in original_columns.items():
+                if original_series is None or col not in df.columns:
+                    continue
+                current = df[col].astype(str)
+                baseline = original_series.astype(str)
+                diff_mask = current.ne(baseline)
+                if diff_mask.any():
+                    changed_cols.append(col)
+                    changed_mask = changed_mask | diff_mask
+
+            changed_mask = changed_mask & mask_0301
+            if changed_mask.any():
+                export_df = df.loc[changed_mask].copy()
+                for col in changed_cols:
+                    original_series = original_columns.get(col)
+                    if original_series is not None:
+                        export_df[f"{col}_ORIGINAL"] = original_series.loc[export_df.index]
+
+                out_path = context.paths.incidencias_dir / f"DATE_MAPPING_0301_BASE_AT12_{context.period}.csv"
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                export_df.to_csv(
+                    out_path,
+                    index=False,
+                    encoding='utf-8',
+                    sep=getattr(context.config, 'output_delimiter', '|'),
+                    quoting=1,
+                    date_format='%Y%m%d'
+                )
+                try:
+                    self.logger.info(f"DATE_MAPPING_0301_BASE_AT12 -> {out_path.name} ({len(export_df)} records)")
+                except Exception:
+                    pass
+        except Exception as e:
+            try:
+                self.logger.warning(f"BASE 0301 DATE MAPPING: export failed with error {e}")
+            except Exception:
+                pass
+
         return df
 
     def _apply_codigo_fiduciaria_update(self, df: pd.DataFrame, context: TransformationContext, subtype: str = "") -> pd.DataFrame:

@@ -23,6 +23,7 @@ def engine_and_context(tmp_path):
     # Minimal config mock
     config = MagicMock()
     config.get.return_value = {}
+    config.output_delimiter = '|'
 
     # Engine
     engine = AT12TransformationEngine(config=config)
@@ -126,3 +127,48 @@ def test_rule_110_inmueble_sin_avaluadora_org_code(engine_and_context):
     assert out.loc[2, 'Nombre_Organismo'] == '774'
     # Not applicable to 0106
     assert out.loc[3, 'Nombre_Organismo'] == ''
+
+
+def test_base_0301_date_mapping_with_at02(engine_and_context):
+    engine, context = engine_and_context
+
+    base_df = pd.DataFrame({
+        'Tipo_Garantia': ['0301', '0301', '0301', '0402'],
+        'Id_Documento': ['0012345678', 'ABC12345', '0000000000', '11223344'],
+        'Fecha_Ultima_Actualizacion': ['20190101', '20190202', '20190303', '20190404'],
+        'Fecha_Última_Actualización': ['20190101', '20190202', '20190303', '20190404'],
+        'Fecha_Vencimiento': ['20191010', '20191212', '20191111', '20191414']
+    })
+
+    at02_df = pd.DataFrame({
+        'identificacion_de_cuenta': ['00012345678', '12345678', '000012345'],
+        'Fecha_inicio': ['07-05-2024', '08-05-2024', '20240115'],
+        'Fecha_Vencimiento': ['07-05-2025', '08-05-2025', '20241231']
+    })
+
+    source_data = {'AT02_CUENTAS': at02_df}
+
+    out = engine._apply_date_mapping_base_0301(base_df, context, source_data)
+
+    # Most recent AT02 dates (08-05-2024/2025) should win for the first record (dedup + normalization)
+    assert out.loc[0, 'Fecha_Ultima_Actualizacion'] == '08-05-2024'
+    assert out.loc[0, 'Fecha_Última_Actualización'] == '08-05-2024'
+    assert out.loc[0, 'Fecha_Vencimiento'] == '08-05-2025'
+
+    # Join must normalize alphanumeric Id_Documento (digits-only) and copy strings verbatim
+    assert out.loc[1, 'Fecha_Ultima_Actualizacion'] == '20240115'
+    assert out.loc[1, 'Fecha_Última_Actualización'] == '20240115'
+    assert out.loc[1, 'Fecha_Vencimiento'] == '20241231'
+
+    # Rows without a usable join key should remain unchanged
+    assert out.loc[2, 'Fecha_Ultima_Actualizacion'] == '20190303'
+    assert out.loc[2, 'Fecha_Vencimiento'] == '20191111'
+
+    # Non-0301 guarantees are unaffected
+    assert out.loc[3, 'Fecha_Ultima_Actualizacion'] == '20190404'
+    assert out.loc[3, 'Fecha_Vencimiento'] == '20191414'
+
+    export_path = context.paths.incidencias_dir / f"DATE_MAPPING_0301_BASE_AT12_{context.period}.csv"
+    assert export_path.exists(), "Expected DATE_MAPPING export for 0301 mapping"
+    exported = pd.read_csv(export_path, sep='|')
+    assert len(exported) == 2

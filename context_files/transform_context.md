@@ -168,6 +168,17 @@ This initial stage focuses on correcting structural and format errors in the `BA
   - Incidence Output: Export affected rows to `FDE_NOMBRE_FIDUCIARIO_<YYYYMMDD>.csv` (under `transforms/AT12/incidencias/`), preserving original values alongside updated ones for `Origen`/`Codigo_Origen` and `Cod_region`/`Codigo_Region`.
   - Notes: This rule does not reformat other fields and runs in Stage 1 as a self-contained base cleanup.
 
+**1.12. BASE 0301 Date Mapping (AT02_CUENTAS cross-check)**
+- Scope: Only `BASE_AT12` rows whose `Tipo_Garantia` (normalized) equals `'0301'`.
+- Join: `Id_Documento` (BASE) ↔ `identificacion_de_cuenta` (AT02) using normalized keys (digits-only, leading zeros removed). Rows without digits remain unmatched.
+- AT02 preparation: Before the merge, deduplicate `AT02_CUENTAS` per normalized key, keeping the row with the most recent available dates. Ordering assumes day-first interpretation (e.g., `08-05-2024` = 8 May 2024) but the original text is preserved.
+- Mapping:
+  - `Fecha_Última_Actualización`/`Fecha_Ultima_Actualizacion` ← `Fecha_inicio` (verbatim string copy).
+  - `Fecha_Vencimiento` ← `Fecha_Vencimiento` (verbatim string copy).
+- No reformatting: The copied date strings keep their original separators and order; there is explicitly no day/month inversion.
+- Outputs: When any field changes, export the affected rows (with `_ORIGINAL` columns) to `DATE_MAPPING_0301_BASE_AT12_[YYYYMMDD].csv` and record the incidence key `BASE_0301_DATE_MAPPING_AT02` for traceability.
+- Dependencies: Rule executes only when `AT02_CUENTAS` is present and non-empty; otherwise it logs a skip with context.
+
 #### **Stage 2: Data Enrichment and Generation from Auxiliary Sources**
 This stage enriches the main dataset by joining it with auxiliary files and applying specific business logic.
 
