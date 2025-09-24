@@ -138,10 +138,10 @@ This initial stage focuses on correcting structural and format errors in the `BA
 
 **1.9. Auto Policy Error (Rule 9)**
 - Objective: Populate/overwrite policy fields for auto guarantees using GARANTIA_AUTOS as source of truth.
-- Input Identification: Rows where `Tipo_Garantia` ∈ {'0101','0103'} **and** `Id_Documento` is empty or blank.
+- Input Identification: Rows where `Tipo_Garantia` ∈ {'0101','0103'}.
 - Join Keys: Join with `GARANTIA_AUTOS_AT12` on `Numero_Prestamo` = `numcred` using normalized keys (digits only, no leading zeros). Output preserves the original formatting of `Numero_Prestamo` (no reformatting is applied).
 - Updates (on successful match):
-  - Id_Documento: overwrite with `num_poliza` (always, even if it had a prior value).
+  - Id_Documento: overwrite with `num_poliza` only when the base value is empty (otherwise preserve the existing identifier).
   - Importe and Valor_Garantia: replace with the policy `monto_asegurado` (preferred) or the best available monetary field in `GARANTIA_AUTOS_AT12`.
   - Fecha_Última_Actualización: replace with policy `Fecha_inicio`.
   - Fecha_Vencimiento: replace with policy `Fecha_Vencimiento`.

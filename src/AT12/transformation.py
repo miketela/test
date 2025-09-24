@@ -3729,14 +3729,15 @@ class AT12TransformationEngine(TransformationEngine):
     def _apply_error_poliza_auto_correction(self, df: pd.DataFrame, context: TransformationContext, source_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """1.9. Auto Policy Error (Rule 9).
 
-        - Scope: Tipo_Garantia in {'0101','0103'} and Id_Documento empty.
+        - Scope: Tipo_Garantia in {'0101','0103'}.
         - Join: Numero_Prestamo (BASE_AT12) = numcred (GARANTIA_AUTOS_AT12) with normalized keys (digits-only, no leading zeros).
-        - Updates on match when num_poliza is digits-only:
-            * Id_Documento ← num_poliza
-            * Importe and Valor_Garantia ← policy amount (if available)
-            * Fecha_Última_Actualización ← policy Fecha_inicio
-            * Fecha_Vencimiento ← policy Fecha_Vencimiento
-        - Constraint: if num_poliza contains any non-digit characters, skip all updates for that row.
+        - Updates on successful match:
+            * Id_Documento ← num_poliza (only when the base value is empty).
+            * Importe and Valor_Garantia ← policy amount (`monto_asegurado` preferred).
+            * Fecha_Última_Actualización ← policy Fecha_inicio.
+            * Fecha_Vencimiento ← policy Fecha_Vencimiento.
+        - Default handling: if no policy is found and Id_Documento was empty, assign '01'.
+        - Additional normalization: when Tipo_Poliza resolves to 'NA', coerce to '01'.
         """
         if 'Tipo_Garantia' not in df.columns or 'Id_Documento' not in df.columns or 'Numero_Prestamo' not in df.columns:
             try:
@@ -3747,7 +3748,10 @@ class AT12TransformationEngine(TransformationEngine):
 
         df = df.copy()
         tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
-        # Apply only when Id_Documento is empty for 0101/0103 guarantees
+        scope_mask = tg_norm.isin({'0101', '0103'})
+        if not scope_mask.any():
+            return df
+
         try:
             id_doc_series = df['Id_Documento'].astype(str)
             id_doc_trim = id_doc_series.str.strip()
@@ -3756,247 +3760,240 @@ class AT12TransformationEngine(TransformationEngine):
             id_doc_trim = id_doc_series
 
         empty_id_mask = df['Id_Documento'].isna() | id_doc_trim.eq('')
-        mask = tg_norm.isin({'0101', '0103'}) & empty_id_mask
 
-        incidences = []
+        incidences: List[Dict[str, Any]] = []
         try:
             orig_idoc = pd.Series(index=df.index, dtype=object)
         except Exception:
             orig_idoc = None
-        if mask.any():
-            # Resolve GARANTIA_AUTOS from source_data or fallback to RAW/SOURCE if missing/empty
-            autos_df = None
-            if 'GARANTIA_AUTOS_AT12' in source_data and not getattr(source_data['GARANTIA_AUTOS_AT12'], 'empty', True):
-                autos_df = source_data['GARANTIA_AUTOS_AT12']
-            else:
-                # Fallback loader to improve robustness when selection/RAW differs
-                try:
-                    from pathlib import Path as _Path
-                    data_raw = _Path(getattr(context.config, 'data_raw_dir', 'data/raw'))
-                    run = context.run_id
-                    # Prefer exact run; accept any date
-                    candidates = sorted(list(data_raw.glob(f"GARANTIA_AUTOS_AT12_*__run-{run}.csv")))
-                    if not candidates:
-                        candidates = sorted(list(data_raw.glob("GARANTIA_AUTOS_AT12_*__run-*.csv")))
-                    if not candidates:
-                        # Try original source directory
-                        source_dir = _Path(getattr(context.config, 'source_dir', 'source'))
-                        src_cand = sorted(list(source_dir.glob("GARANTIA_AUTOS_AT12_*.*")))
-                        if src_cand:
-                            candidates = [src_cand[-1]]
-                    if candidates:
-                        cand = candidates[-1]
-                        try:
-                            autos_df = self._file_reader.read_file(cand)
-                        except Exception:
-                            # As last resort, pandas read
-                            import pandas as _pd
-                            autos_df = _pd.read_csv(cand, dtype=str, keep_default_na=False)
-                        self.logger.info(f"AUTO_POLICY fallback loaded {cand.name} with {len(autos_df)} records")
-                except Exception as e:
-                    self.logger.warning(f"AUTO_POLICY fallback load failed: {e}")
+        updated_indices: List[int] = []
 
-            if autos_df is None or getattr(autos_df, 'empty', True):
-                self.logger.warning("GARANTIA_AUTOS_AT12 data not available for auto policy Id_Documento completion")
-                try:
-                    self.logger.info("Skipping AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS: GARANTIA_AUTOS_AT12 not available")
-                except Exception:
-                    pass
-            else:
-                if 'numcred' in autos_df.columns and 'num_poliza' in autos_df.columns:
-                    autos_df = autos_df.copy()
-                    autos_df['_norm_key'] = self._normalize_join_key(autos_df['numcred'])
-                    # Build lookup series for required fields
-                    map_poliza = autos_df.set_index('_norm_key')['num_poliza']
-                    # Best-effort amount and date columns from autos (prefer monto_asegurado)
-                    amount_candidates = [
-                        'monto_asegurado', 'Monto_Asegurado', 'MONTO_ASEGURADO',
-                        'importe', 'Importe', 'valor_poliza', 'Valor_Poliza',
-                        'monto', 'Monto', 'Valor_Garantia', 'Valor_Garantía'
-                    ]
-                    amount_col = next((c for c in amount_candidates if c in autos_df.columns), None)
-                    map_amount = autos_df.set_index('_norm_key')[amount_col] if amount_col else None
-                    start_col = None
-                    for c in ['fec_ini_cob', 'fec_ini_co', 'FEC_INI_COB', 'FEC_INI_CO', 'Fecha_inicio', 'fecha_inicio', 'Fecha_Inicio']:
-                        if c in autos_df.columns:
-                            start_col = c
-                            break
-                    end_col = None
-                    for c in ['fec_fin_cobe', 'fec_fin_co', 'FEC_FIN_COBE', 'FEC_FIN_CO', 'Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento']:
-                        if c in autos_df.columns:
-                            end_col = c
-                            break
-                    map_start = autos_df.set_index('_norm_key')[start_col] if start_col else None
-                    map_end = autos_df.set_index('_norm_key')[end_col] if end_col else None
-                    # Exclusion tokens based on monto_asegurado textual values
-                    exclusion_col = None
-                    for c in ['monto_asegurado', 'Monto_Asegurado', 'MONTO_ASEGURADO']:
-                        if c in autos_df.columns:
-                            exclusion_col = c
-                            break
-                    map_excl = autos_df.set_index('_norm_key')[exclusion_col] if exclusion_col else None
-                    excl_tokens = { 'NUEVO DESEMBOLSO', 'PERDIDA TOTAL', 'FALLECIDO' }
-
-                    base_norm = self._normalize_join_key(df['Numero_Prestamo'])
-                    # Prepare originals for export side-by-side
+        autos_df = None
+        if 'GARANTIA_AUTOS_AT12' in source_data and not getattr(source_data['GARANTIA_AUTOS_AT12'], 'empty', True):
+            autos_df = source_data['GARANTIA_AUTOS_AT12']
+        else:
+            try:
+                from pathlib import Path as _Path
+                data_raw = _Path(getattr(context.config, 'data_raw_dir', 'data/raw'))
+                run = context.run_id
+                candidates = sorted(list(data_raw.glob(f"GARANTIA_AUTOS_AT12_*__run-{run}.csv")))
+                if not candidates:
+                    candidates = sorted(list(data_raw.glob("GARANTIA_AUTOS_AT12_*__run-*.csv")))
+                if not candidates:
+                    source_dir = _Path(getattr(context.config, 'source_dir', 'source'))
+                    src_cand = sorted(list(source_dir.glob("GARANTIA_AUTOS_AT12_*.*")))
+                    if src_cand:
+                        candidates = [src_cand[-1]]
+                if candidates:
+                    cand = candidates[-1]
                     try:
-                        orig_importe = pd.Series(index=df.index, dtype=object)
-                        orig_val_gar = pd.Series(index=df.index, dtype=object)
-                        orig_last_upd = pd.Series(index=df.index, dtype=object)
-                        orig_venc = pd.Series(index=df.index, dtype=object)
-                        orig_tipo_poliza = pd.Series(index=df.index, dtype=object)
+                        autos_df = self._file_reader.read_file(cand)
                     except Exception:
-                        orig_importe = orig_val_gar = orig_last_upd = orig_venc = orig_tipo_poliza = None
-                    # Prepare join diagnostics
-                    diag_rows = []
-                    # Count diagnostics
-                    matched = 0
-                    applied_count = 0
-                    for idx in df[mask].index:
-                        key = base_norm.loc[idx]
-                        if pd.isna(key):
-                            continue
+                        import pandas as _pd
+                        autos_df = _pd.read_csv(cand, dtype=str, keep_default_na=False)
+                    self.logger.info(f"AUTO_POLICY fallback loaded {cand.name} with {len(autos_df)} records")
+            except Exception as e:
+                self.logger.warning(f"AUTO_POLICY fallback load failed: {e}")
 
-                        original_id = df.loc[idx, 'Id_Documento']
-                        tipo_poliza_before = df.loc[idx, 'Tipo_Poliza'] if 'Tipo_Poliza' in df.columns else None
-                        updates: Dict[str, Any] = {}
+        if autos_df is None or getattr(autos_df, 'empty', True):
+            self.logger.warning("GARANTIA_AUTOS_AT12 data not available for auto policy enrichment")
+            try:
+                self.logger.info("Skipping AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS: GARANTIA_AUTOS_AT12 not available")
+            except Exception:
+                pass
+            return df
 
-                        val = map_poliza.get(key, None) if map_poliza is not None else None
-                        sval = str(val).strip() if (val is not None and pd.notna(val)) else ''
-                        if pd.notna(val):
-                            matched += 1
+        if 'numcred' not in autos_df.columns or 'num_poliza' not in autos_df.columns:
+            return df
 
-                        excl_case = False
-                        try:
-                            if map_excl is not None:
-                                exv = map_excl.get(key, None)
-                                if exv is not None:
-                                    exu = str(exv).strip().upper()
-                                    if exu in excl_tokens:
-                                        excl_case = True
-                        except Exception:
-                            pass
+        autos_df = autos_df.copy()
+        autos_df['_norm_key'] = self._normalize_join_key(autos_df['numcred'])
+        map_poliza = autos_df.set_index('_norm_key')['num_poliza']
 
-                        applied = False
-                        if sval:
-                            if orig_idoc is not None:
-                                orig_idoc.loc[idx] = original_id
-                            df.loc[idx, 'Id_Documento'] = sval
-                            updates['Id_Documento'] = sval
-                            applied = True
-                            applied_count += 1
+        amount_candidates = [
+            'monto_asegurado', 'Monto_Asegurado', 'MONTO_ASEGURADO',
+            'importe', 'Importe', 'valor_poliza', 'Valor_Poliza',
+            'monto', 'Monto', 'Valor_Garantia', 'Valor_Garantía'
+        ]
+        amount_col = next((c for c in amount_candidates if c in autos_df.columns), None)
+        map_amount = autos_df.set_index('_norm_key')[amount_col] if amount_col else None
 
-                            # Amounts (skip when exclusion token present)
-                            if (not excl_case) and (map_amount is not None):
-                                aval = map_amount.get(key, None)
-                                aval_str = str(aval).strip() if pd.notna(aval) else ''
-                                if aval_str != '':
-                                    if 'Importe' in df.columns:
-                                        if orig_importe is not None:
-                                            orig_importe.loc[idx] = df.loc[idx, 'Importe']
-                                        df.loc[idx, 'Importe'] = aval_str
-                                        updates['Importe'] = aval_str
-                                    for tgt in ['Valor_Garantía', 'Valor_Garantia']:
-                                        if tgt in df.columns:
-                                            if orig_val_gar is not None:
-                                                orig_val_gar.loc[idx] = df.loc[idx, tgt]
-                                            df.loc[idx, tgt] = aval_str
-                                            updates[tgt] = aval_str
+        start_col = next((c for c in ['fec_ini_cob', 'fec_ini_co', 'FEC_INI_COB', 'FEC_INI_CO', 'Fecha_inicio', 'fecha_inicio', 'Fecha_Inicio'] if c in autos_df.columns), None)
+        end_col = next((c for c in ['fec_fin_cobe', 'fec_fin_co', 'FEC_FIN_COBE', 'FEC_FIN_CO', 'Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento'] if c in autos_df.columns), None)
+        map_start = autos_df.set_index('_norm_key')[start_col] if start_col else None
+        map_end = autos_df.set_index('_norm_key')[end_col] if end_col else None
 
-                            # Dates from autos when available
-                            if map_start is not None:
-                                dval = map_start.get(key, None)
-                                dval_str = str(dval).strip() if pd.notna(dval) else ''
-                                if dval_str != '':
-                                    for tgt in ['Fecha_Última_Actualización', 'Fecha_Ultima_Actualizacion']:
-                                        if tgt in df.columns:
-                                            if orig_last_upd is not None:
-                                                orig_last_upd.loc[idx] = df.loc[idx, tgt]
-                                            df.loc[idx, tgt] = dval_str
-                                            updates[tgt] = dval_str
-                            if map_end is not None and 'Fecha_Vencimiento' in df.columns:
-                                dval2 = map_end.get(key, None)
-                                dval2_str = str(dval2).strip() if pd.notna(dval2) else ''
-                                if dval2_str != '':
-                                    if orig_venc is not None:
-                                        orig_venc.loc[idx] = df.loc[idx, 'Fecha_Vencimiento']
-                                    df.loc[idx, 'Fecha_Vencimiento'] = dval2_str
-                                    updates['Fecha_Vencimiento'] = dval2_str
+        exclusion_col = next((c for c in ['monto_asegurado', 'Monto_Asegurado', 'MONTO_ASEGURADO'] if c in autos_df.columns), None)
+        map_excl = autos_df.set_index('_norm_key')[exclusion_col] if exclusion_col else None
+        excl_tokens = {'NUEVO DESEMBOLSO', 'PERDIDA TOTAL', 'FALLECIDO'}
 
-                            reason = 'APPLIED_ID_DATES_ONLY' if excl_case else 'APPLIED'
-                        else:
-                            # No policy found or empty policy: default to '01'
-                            if orig_idoc is not None:
-                                orig_idoc.loc[idx] = original_id
-                            df.loc[idx, 'Id_Documento'] = '01'
-                            updates['Id_Documento'] = '01'
-                            applied = True
-                            reason = 'DEFAULT_NO_POLICY'
+        base_norm = self._normalize_join_key(df['Numero_Prestamo'])
 
-                        # Normalize Tipo_Poliza when NA
-                        if 'Tipo_Poliza' in df.columns:
-                            current_tp = str(df.loc[idx, 'Tipo_Poliza']).strip()
-                            if current_tp.upper() == 'NA':
-                                if orig_tipo_poliza is not None and tipo_poliza_before is not None:
-                                    orig_tipo_poliza.loc[idx] = tipo_poliza_before
-                                df.loc[idx, 'Tipo_Poliza'] = '01'
-                                updates['Tipo_Poliza'] = '01'
+        try:
+            orig_importe = pd.Series(index=df.index, dtype=object)
+            orig_val_gar = pd.Series(index=df.index, dtype=object)
+            orig_last_upd = pd.Series(index=df.index, dtype=object)
+            orig_venc = pd.Series(index=df.index, dtype=object)
+            orig_tipo_poliza = pd.Series(index=df.index, dtype=object)
+        except Exception:
+            orig_importe = orig_val_gar = orig_last_upd = orig_venc = orig_tipo_poliza = None
 
-                        if applied:
-                            incid = {
-                                'Index': int(idx),
-                                'Tipo_Garantia': str(df.loc[idx, 'Tipo_Garantia']),
-                                'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
-                                'Numero_Prestamo_JOIN_KEY': str(key),
-                                'Original_Id_Documento': original_id,
-                                'Corrected_Id_Documento': df.loc[idx, 'Id_Documento'],
-                                'Rule': 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS'
-                            }
-                            if updates:
-                                incid.update({f'Updated_{k}': v for k, v in updates.items()})
-                            incidences.append(incid)
+        diag_rows: List[Dict[str, Any]] = []
+        matched = 0
+        applied_count = 0
 
-                        diag_rows.append({
-                            'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
-                            'Numero_Prestamo_JOIN_KEY': str(key),
-                            'num_poliza': sval if sval else '01',
-                            'applied': applied,
-                            'reason': reason
-                        })
-                    try:
-                        self.logger.info(
-                            f"AUTO_POLICY: candidates={int(mask.sum())}, autos_rows={len(autos_df)}, matched={matched}, applied={applied_count}"
-                        )
-                    except Exception:
-                        pass
+        for idx in df[scope_mask].index:
+            key = base_norm.loc[idx]
+            if pd.isna(key):
+                continue
+
+            original_id = df.loc[idx, 'Id_Documento']
+            has_existing_id = not empty_id_mask.loc[idx]
+            tipo_poliza_before = df.loc[idx, 'Tipo_Poliza'] if 'Tipo_Poliza' in df.columns else None
+
+            updates: Dict[str, Any] = {}
+            reason = 'NOT_FOUND'
+            applied = False
+
+            val = map_poliza.get(key, None) if map_poliza is not None else None
+            sval = str(val).strip() if (val is not None and pd.notna(val)) else ''
+            if pd.notna(val):
+                matched += 1
+
+            excl_case = False
+            try:
+                if map_excl is not None:
+                    exv = map_excl.get(key, None)
+                    if exv is not None:
+                        exu = str(exv).strip().upper()
+                        if exu in excl_tokens:
+                            excl_case = True
+            except Exception:
+                pass
+
+            if sval:
+                reason = 'APPLIED'
+                if not has_existing_id:
+                    if orig_idoc is not None:
+                        orig_idoc.loc[idx] = original_id
+                    df.loc[idx, 'Id_Documento'] = sval
+                    updates['Id_Documento'] = sval
+                else:
+                    reason = 'APPLIED_EXISTING_ID'
+                applied = True
+                applied_count += 1
+
+                if (not excl_case) and (map_amount is not None):
+                    aval = map_amount.get(key, None)
+                    aval_str = str(aval).strip() if pd.notna(aval) else ''
+                    if aval_str != '':
+                        if 'Importe' in df.columns:
+                            if orig_importe is not None:
+                                orig_importe.loc[idx] = df.loc[idx, 'Importe']
+                            df.loc[idx, 'Importe'] = aval_str
+                            updates['Importe'] = aval_str
+                        for tgt in ['Valor_Garantía', 'Valor_Garantia']:
+                            if tgt in df.columns:
+                                if orig_val_gar is not None:
+                                    orig_val_gar.loc[idx] = df.loc[idx, tgt]
+                                df.loc[idx, tgt] = aval_str
+                                updates[tgt] = aval_str
+
+                if map_start is not None:
+                    dval = map_start.get(key, None)
+                    dval_str = str(dval).strip() if pd.notna(dval) else ''
+                    if dval_str != '':
+                        for tgt in ['Fecha_Última_Actualización', 'Fecha_Ultima_Actualizacion']:
+                            if tgt in df.columns:
+                                if orig_last_upd is not None:
+                                    orig_last_upd.loc[idx] = df.loc[idx, tgt]
+                                df.loc[idx, tgt] = dval_str
+                                updates[tgt] = dval_str
+
+                if map_end is not None and 'Fecha_Vencimiento' in df.columns:
+                    dval2 = map_end.get(key, None)
+                    dval2_str = str(dval2).strip() if pd.notna(dval2) else ''
+                    if dval2_str != '':
+                        if orig_venc is not None:
+                            orig_venc.loc[idx] = df.loc[idx, 'Fecha_Vencimiento']
+                        df.loc[idx, 'Fecha_Vencimiento'] = dval2_str
+                        updates['Fecha_Vencimiento'] = dval2_str
+            else:
+                if not has_existing_id:
+                    reason = 'DEFAULT_NO_POLICY'
+                    if orig_idoc is not None:
+                        orig_idoc.loc[idx] = original_id
+                    df.loc[idx, 'Id_Documento'] = '01'
+                    updates['Id_Documento'] = '01'
+                    applied = True
+                else:
+                    reason = 'POLICY_MISSING_EXISTING_ID'
+
+            if 'Tipo_Poliza' in df.columns:
+                current_tp = str(df.loc[idx, 'Tipo_Poliza']).strip()
+                if current_tp.upper() == 'NA':
+                    if orig_tipo_poliza is not None and tipo_poliza_before is not None:
+                        orig_tipo_poliza.loc[idx] = tipo_poliza_before
+                    df.loc[idx, 'Tipo_Poliza'] = '01'
+                    updates['Tipo_Poliza'] = '01'
+                    applied = True
+
+            if updates:
+                updated_indices.append(idx)
+                incid = {
+                    'Index': int(idx),
+                    'Tipo_Garantia': str(df.loc[idx, 'Tipo_Garantia']),
+                    'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
+                    'Numero_Prestamo_JOIN_KEY': str(key),
+                    'Original_Id_Documento': original_id,
+                    'Corrected_Id_Documento': df.loc[idx, 'Id_Documento'],
+                    'Rule': 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS'
+                }
+                incid.update({f'Updated_{k}': v for k, v in updates.items()})
+                incidences.append(incid)
+
+            diag_rows.append({
+                'Numero_Prestamo': str(df.loc[idx, 'Numero_Prestamo']),
+                'Numero_Prestamo_JOIN_KEY': str(key),
+                'num_poliza': sval if sval else '01',
+                'applied': applied,
+                'reason': reason
+            })
+
+        try:
+            self.logger.info(
+                f"AUTO_POLICY: candidates={int(scope_mask.sum())}, autos_rows={len(autos_df)}, matched={matched}, applied={applied_count}"
+            )
+        except Exception:
+            pass
 
         if incidences:
             self._store_incidences('AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', incidences, context)
             try:
-                original_columns = {}
-                if orig_idoc is not None:
-                    original_columns['Id_Documento'] = orig_idoc
-                if 'Importe' in df.columns and 'orig_importe' in locals() and orig_importe is not None:
-                    original_columns['Importe'] = orig_importe
-                for tgt in ['Valor_Garantía', 'Valor_Garantia']:
-                    if tgt in df.columns and 'orig_val_gar' in locals() and orig_val_gar is not None:
-                        original_columns[tgt] = orig_val_gar
-                for tgt in ['Fecha_Última_Actualización', 'Fecha_Ultima_Actualizacion']:
-                    if tgt in df.columns and 'orig_last_upd' in locals() and orig_last_upd is not None:
-                        original_columns[tgt] = orig_last_upd
-                if 'Fecha_Vencimiento' in df.columns and 'orig_venc' in locals() and orig_venc is not None:
-                    original_columns['Fecha_Vencimiento'] = orig_venc
-                if 'Tipo_Poliza' in df.columns and 'orig_tipo_poliza' in locals() and orig_tipo_poliza is not None:
-                    original_columns['Tipo_Poliza'] = orig_tipo_poliza
-                original_columns = original_columns or None
-                self._export_error_subset(df, mask, 'BASE_AT12', 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', context, None, original_columns=original_columns)
+                if updated_indices:
+                    export_mask = df.index.isin(updated_indices)
+                    original_columns = {}
+                    if orig_idoc is not None and not orig_idoc.dropna().empty:
+                        original_columns['Id_Documento'] = orig_idoc
+                    if 'Importe' in df.columns and orig_importe is not None:
+                        original_columns['Importe'] = orig_importe
+                    for tgt in ['Valor_Garantía', 'Valor_Garantia']:
+                        if tgt in df.columns and orig_val_gar is not None:
+                            original_columns[tgt] = orig_val_gar
+                    for tgt in ['Fecha_Última_Actualización', 'Fecha_Ultima_Actualizacion']:
+                        if tgt in df.columns and orig_last_upd is not None:
+                            original_columns[tgt] = orig_last_upd
+                    if 'Fecha_Vencimiento' in df.columns and orig_venc is not None:
+                        original_columns['Fecha_Vencimiento'] = orig_venc
+                    if 'Tipo_Poliza' in df.columns and orig_tipo_poliza is not None:
+                        original_columns['Tipo_Poliza'] = orig_tipo_poliza
+                    original_columns = original_columns or None
+                    self._export_error_subset(df, export_mask, 'BASE_AT12', 'AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS', context, None, original_columns=original_columns)
             except Exception:
                 pass
-            # Export join diagnostics for non-applied or applied cases to help detect normalization issues
             try:
-                if 'diag_rows' in locals() and diag_rows:
+                if diag_rows:
                     diag_df = pd.DataFrame(diag_rows)
-                    # Keep only problematic cases to reduce noise
                     diag_out = diag_df[diag_df['applied'] == False].copy()
                     if not diag_out.empty:
                         diag_path = context.paths.incidencias_dir / f"AUTO_POLICY_JOIN_DIAG_{context.period}.csv"
@@ -4006,11 +4003,10 @@ class AT12TransformationEngine(TransformationEngine):
                 pass
         else:
             try:
-                self.logger.info("AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS: no completions or no candidates (0101/0103 empty)")
+                self.logger.info("AUTO_NUM_POLIZA_FROM_GARANTIA_AUTOS: no completions or no candidates (0101/0103 scope)")
             except Exception:
                 pass
         return df
-    
     def _apply_inmueble_sin_avaluadora_correction(self, df: pd.DataFrame, context: TransformationContext) -> pd.DataFrame:
         """1.10. Inmueble sin Avaluadora: Asignar Nombre_Organismo='774' cuando Tipo_Garantia in (0207,0208,0209) y Nombre_Organismo vacío."""
         if 'Tipo_Garantia' not in df.columns or 'Nombre_Organismo' not in df.columns:

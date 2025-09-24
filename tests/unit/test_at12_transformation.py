@@ -933,8 +933,9 @@ class TestAT12TransformationEngine:
         )
 
         assert transformed.loc[0, 'Id_Documento'] == 'AUTO-EXISTING'
-        assert transformed.loc[0, 'Importe'] == '100'
-        assert transformed.loc[0, 'Valor_Garantia'] == '100'
+        assert transformed.loc[0, 'Importe'] == '200'
+        assert transformed.loc[0, 'Valor_Garantia'] == '200'
+        assert transformed.loc[0, 'Tipo_Poliza'] == '01'
 
     @pytest.mark.unit
     def test_codigo_fiduciaria_update_changes_508_to_528(self, engine, base_context):
