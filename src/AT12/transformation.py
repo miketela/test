@@ -3747,8 +3747,16 @@ class AT12TransformationEngine(TransformationEngine):
 
         df = df.copy()
         tg_norm = self._normalize_tipo_garantia_series(df['Tipo_Garantia'])
-        # Apply to all 0101/0103 regardless of current Id_Documento value
-        mask = (tg_norm.isin({'0101', '0103'}))
+        # Apply only when Id_Documento is empty for 0101/0103 guarantees
+        try:
+            id_doc_series = df['Id_Documento'].astype(str)
+            id_doc_trim = id_doc_series.str.strip()
+        except Exception:
+            id_doc_series = df['Id_Documento']
+            id_doc_trim = id_doc_series
+
+        empty_id_mask = df['Id_Documento'].isna() | id_doc_trim.eq('')
+        mask = tg_norm.isin({'0101', '0103'}) & empty_id_mask
 
         incidences = []
         try:

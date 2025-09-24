@@ -138,14 +138,14 @@ This initial stage focuses on correcting structural and format errors in the `BA
 
 **1.9. Auto Policy Error (Rule 9)**
 - Objective: Populate/overwrite policy fields for auto guarantees using GARANTIA_AUTOS as source of truth.
-- Input Identification: Rows where `Tipo_Garantia` ∈ {'0101','0103'} (regardless of `Id_Documento` being empty or not).
+- Input Identification: Rows where `Tipo_Garantia` ∈ {'0101','0103'} **and** `Id_Documento` is empty or blank.
 - Join Keys: Join with `GARANTIA_AUTOS_AT12` on `Numero_Prestamo` = `numcred` using normalized keys (digits only, no leading zeros). Output preserves the original formatting of `Numero_Prestamo` (no reformatting is applied).
 - Updates (on successful match):
   - Id_Documento: overwrite with `num_poliza` (always, even if it had a prior value).
   - Importe and Valor_Garantia: replace with the policy `monto_asegurado` (preferred) or the best available monetary field in `GARANTIA_AUTOS_AT12`.
   - Fecha_Última_Actualización: replace with policy `Fecha_inicio`.
   - Fecha_Vencimiento: replace with policy `Fecha_Vencimiento`.
-- Default handling: If the join does not find a policy or `num_poliza` is empty, set `Id_Documento = '01'` to signal a missing policy reference.
+- Default handling: If the join does not find a policy or `num_poliza` is empty, set `Id_Documento = '01'` (only for rows whose `Id_Documento` was originally vacío).
 - Additional normalization: When the resulting `Tipo_Poliza` is `'NA'`, assign the default `'01'`.
 - Constraint: Accept any non-empty `num_poliza` (may include dashes/letters/symbols). If `monto_asegurado` equals any of {"Nuevo Desembolso", "PERDIDA TOTAL", "FALLECIDO"} (case-insensitive), only update identification/dates (amounts remain unchanged).
 
