@@ -143,11 +143,11 @@ This initial stage focuses on correcting structural and format errors in the `BA
 - Updates (on successful match):
   - Id_Documento: overwrite with `num_poliza` only when the base value is empty (otherwise preserve the existing identifier).
   - Importe and Valor_Garantia: replace with the policy `monto_asegurado` (preferred) or the best available monetary field in `GARANTIA_AUTOS_AT12`.
-  - Fecha_Última_Actualización: replace with policy `Fecha_inicio`.
-  - Fecha_Vencimiento: replace with policy `Fecha_Vencimiento`.
+  - Fecha_Última_Actualización: replace with `fec_ini_cob` from `GARANTIA_AUTOS_AT12` (populate `fec_ini_cob` when the input uses an alternate start-date column).
+  - Fecha_Vencimiento: replace with `fec_fin_cobe` from `GARANTIA_AUTOS_AT12` (populate `fec_fin_cobe` when the input uses an alternate end-date column).
 - Default handling: If the join does not find a policy or `num_poliza` is empty, set `Id_Documento = '01'` (only for rows whose `Id_Documento` was originally vacío).
 - Additional normalization: When the resulting `Tipo_Poliza` is `'NA'`, assign the default `'01'`.
-- Constraint: Accept any non-empty `num_poliza` (may include dashes/letters/symbols). If `monto_asegurado` equals any of {"Nuevo Desembolso", "PERDIDA TOTAL", "FALLECIDO"} (case-insensitive), only update identification/dates (amounts remain unchanged).
+- Constraint: Accept any non-empty `num_poliza` (may include dashes/letters/symbols). If `monto_asegurado` equals any of {"Nuevo Desembolso", "PERDIDA TOTAL", "FALLECIDO"} (case-insensitive, accents allowed), still refresh `Id_Documento` (when empty) and the policy dates, but leave `Importe`/`Valor_Garantia` unchanged.
 
 **1.10. Property without Appraiser**
 *   **Objective:** To assign an organization code to properties that are missing it.

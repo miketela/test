@@ -4,6 +4,7 @@ from pathlib import Path
 import logging
 from datetime import datetime
 import calendar
+import unicodedata
 
 from src.core.transformation import TransformationEngine, TransformationContext, TransformationResult
 from src.core.incidence_reporter import IncidenceReporter, IncidenceType, IncidenceSeverity
@@ -4075,14 +4076,38 @@ class AT12TransformationEngine(TransformationEngine):
         amount_col = next((c for c in amount_candidates if c in autos_df.columns), None)
         map_amount = autos_df.set_index('_norm_key')[amount_col] if amount_col else None
 
-        start_col = next((c for c in ['fec_ini_cob', 'fec_ini_co', 'FEC_INI_COB', 'FEC_INI_CO', 'Fecha_inicio', 'fecha_inicio', 'Fecha_Inicio'] if c in autos_df.columns), None)
-        end_col = next((c for c in ['fec_fin_cobe', 'fec_fin_co', 'FEC_FIN_COBE', 'FEC_FIN_CO', 'Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento'] if c in autos_df.columns), None)
-        map_start = autos_df.set_index('_norm_key')[start_col] if start_col else None
-        map_end = autos_df.set_index('_norm_key')[end_col] if end_col else None
+        start_candidates = ['fec_ini_cob', 'FEC_INI_COB', 'fec_ini_co', 'FEC_INI_CO', 'Fecha_inicio', 'fecha_inicio', 'Fecha_Inicio']
+        start_col = next((c for c in start_candidates if c in autos_df.columns), None)
+        if start_col is not None:
+            target_start = 'fec_ini_cob'
+            if target_start not in autos_df.columns or start_col != target_start:
+                autos_df[target_start] = autos_df[start_col]
+        end_candidates = ['fec_fin_cobe', 'FEC_FIN_COBE', 'fec_fin_co', 'FEC_FIN_CO', 'Fecha_Vencimiento', 'fecha_vencimiento', 'Fecha_vencimiento']
+        end_col = next((c for c in end_candidates if c in autos_df.columns), None)
+        if end_col is not None:
+            target_end = 'fec_fin_cobe'
+            if target_end not in autos_df.columns or end_col != target_end:
+                autos_df[target_end] = autos_df[end_col]
+
+        map_start = autos_df.set_index('_norm_key')['fec_ini_cob'] if 'fec_ini_cob' in autos_df.columns else None
+        map_end = autos_df.set_index('_norm_key')['fec_fin_cobe'] if 'fec_fin_cobe' in autos_df.columns else None
 
         exclusion_col = next((c for c in ['monto_asegurado', 'Monto_Asegurado', 'MONTO_ASEGURADO'] if c in autos_df.columns), None)
         map_excl = autos_df.set_index('_norm_key')[exclusion_col] if exclusion_col else None
         excl_tokens = {'NUEVO DESEMBOLSO', 'PERDIDA TOTAL', 'FALLECIDO'}
+
+        def _normalize_exclusion_token(value: Any) -> str:
+            """Upper-case exclusion token without accents for lenient comparisons."""
+            if value is None:
+                return ''
+            text = str(value).strip()
+            if text == '':
+                return ''
+            decomposed = unicodedata.normalize('NFKD', text)
+            cleaned = ''.join(ch for ch in decomposed if not unicodedata.combining(ch))
+            return cleaned.upper()
+
+        excl_tokens_norm = {_normalize_exclusion_token(tok) for tok in excl_tokens}
 
         base_norm = self._normalize_join_key(df['Numero_Prestamo'])
 
@@ -4122,8 +4147,8 @@ class AT12TransformationEngine(TransformationEngine):
                 if map_excl is not None:
                     exv = map_excl.get(key, None)
                     if exv is not None:
-                        exu = str(exv).strip().upper()
-                        if exu in excl_tokens:
+                        exu_norm = _normalize_exclusion_token(exv)
+                        if exu_norm in excl_tokens_norm:
                             excl_case = True
             except Exception:
                 pass

@@ -892,8 +892,8 @@ class TestAT12TransformationEngine:
             'numcred': ['605248'],  # normalized join key should match loan id
             'num_poliza': ['AUTO-XYZ-01'],
             'monto_asegurado': ['7500'],
-            'Fecha_Inicio': ['20231215'],
-            'Fecha_Vencimiento': ['20241214'],
+            'fec_ini_cob': ['20231215'],
+            'fec_fin_cobe': ['20241214'],
             'Valor_Garantia': ['2500.00']
         })
 
@@ -959,6 +959,43 @@ class TestAT12TransformationEngine:
         assert transformed.loc[0, 'Id_Documento'] == 'AUTO-EXISTING'
         assert transformed.loc[0, 'Importe'] == '200'
         assert transformed.loc[0, 'Valor_Garantia'] == '200'
+        assert transformed.loc[0, 'Tipo_Poliza'] == '01'
+
+    @pytest.mark.unit
+    def test_auto_policy_special_monto_skips_amounts(self, engine, base_context):
+        """Special monto_asegurado labels must keep amounts but refresh Id and dates."""
+        engine._export_error_subset = Mock()
+        engine._store_incidences = Mock()
+
+        base_df = pd.DataFrame({
+            'Tipo_Garantia': ['0103'],
+            'Id_Documento': [''],
+            'Numero_Prestamo': ['0000456700'],
+            'Importe': ['100.00'],
+            'Valor_Garantia': ['150.00'],
+            'Fecha_Ultima_Actualizacion': ['20240101'],
+            'Fecha_Vencimiento': ['20240131'],
+            'Tipo_Poliza': ['NA']
+        })
+
+        autos_df = pd.DataFrame({
+            'numcred': ['456700'],
+            'num_poliza': ['AUTO-REFRESH-02'],
+            'monto_asegurado': ['PÉRDIDA TOTAL'],
+            'fecha_inicio': ['20240315'],
+            'Fecha_Vencimiento': ['20250315'],
+            'Valor_Garantia': ['99999.99']
+        })
+
+        source_data = {'GARANTIA_AUTOS_AT12': autos_df}
+
+        transformed = engine._apply_error_poliza_auto_correction(base_df, base_context, source_data)
+
+        assert transformed.loc[0, 'Id_Documento'] == 'AUTO-REFRESH-02'
+        assert transformed.loc[0, 'Importe'] == '100.00'
+        assert transformed.loc[0, 'Valor_Garantia'] == '150.00'
+        assert transformed.loc[0, 'Fecha_Ultima_Actualizacion'] == '20240315'
+        assert transformed.loc[0, 'Fecha_Vencimiento'] == '20250315'
         assert transformed.loc[0, 'Tipo_Poliza'] == '01'
 
     @pytest.mark.unit
