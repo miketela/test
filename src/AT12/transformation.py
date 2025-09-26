@@ -1239,11 +1239,10 @@ class AT12TransformationEngine(TransformationEngine):
             ('Valor_Inicial', 'Valor_Garantia', 'Valor_Garantía', 'Valor_Ponderado', 'valor_ponderado', 'Importe')
         )
 
-        for col in ('Numero_Garantia', 'Numero_Cis_Garantia'):
+        # Preserve original Pais_Emision values for SOBREGIRO; only strip whitespace from identifiers here.
+        """ for col in ('Numero_Garantia', 'Numero_Cis_Garantia'):
             if col in df.columns:
-                df[col] = df[col].map(lambda v: '' if pd.isna(v) else str(v).strip())
-        if 'Pais_Emision' in df.columns:
-            df['Pais_Emision'] = '591'
+                df[col] = df[col].map(lambda v: '' if pd.isna(v) else str(v).strip()) """
 
         return df
     
@@ -1302,8 +1301,6 @@ class AT12TransformationEngine(TransformationEngine):
         for col in ('Numero_Garantia', 'Numero_Cis_Garantia'):
             if col in df.columns:
                 df[col] = df[col].map(lambda v: '' if pd.isna(v) else str(v).strip())
-        if 'Pais_Emision' in df.columns:
-            df['Pais_Emision'] = '591'
 
         return df
 
@@ -1744,7 +1741,6 @@ class AT12TransformationEngine(TransformationEngine):
         # Guarantee column presence with proper accents
         if 'País_Emisión' not in df.columns:
             df['País_Emisión'] = ''
-        df['País_Emisión'] = '591'
 
         # Trim sensitive identifiers to remove stray spaces
         def _strip_or_blank(val: Any) -> str:

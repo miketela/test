@@ -90,6 +90,7 @@ else:
 ## Transformation
 - **Hard preconditions:** all required subtypes present for period; headers valid (if schema exists).
 - **Incidence subsets:** saved under `transforms/AT12/incidencias/` using `[RULE]_[SUBTYPE]_[YYYYMMDD].csv`; corrected fields include side-by-side `_ORIGINAL` columns.
+- **`Pais_Emision` handling:** only the VALORES pipeline stamps the regulatory constant `'591'`; TDC and SOBREGIRO outputs retain whatever country code arrives in their source data (post-trim only).
 - **Global aggregates:** `EEOO_TABULAR_[YYYYMMDD].csv` (one row per event), also under `incidencias/`.
 - **Final TXT:** headerless; BASE `|`, TDC/SOBREGIRO/VALORES space; written under `transforms/AT12/consolidated/`.
 

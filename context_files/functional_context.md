@@ -73,6 +73,7 @@ The system includes an advanced header mapping and normalization engine:
 ### 2) Transformation
 - **Precondition:** all required subtypes present for the processed month.
 - Apply minimal normalizations (headers) and the defined rules (details pending).
+- Subtype finalization: VALORES enforces the regulatory constant `Pais_Emision='591'`, whereas TDC and SOBREGIRO propagate the `Pais_Emision` supplied in their respective inputs (only trimming whitespace when needed).
 - Outputs:
   - **One consolidated TXT** per month: `AT12_CONSOLIDATED_<YYYYMM>__run-<run_id>.TXT` (exact layout pending).
   - Incidence CSVs and Excel follow-up artifacts under `transforms/AT12/` (no PDF summary).

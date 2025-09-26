@@ -174,6 +174,7 @@ The header mapping system provides intelligent header transformation with specia
 2. Normalize headers; reorder columns (if schema exists).
 3. Apply join/order/derived rules (pending).
 4. Write **consolidated TXT** (no PDF summary).
+5. Finalize per subtype: VALORES enforces regulatory constants (e.g., `Pais_Emision='591'`), while TDC and SOBREGIRO preserve the country codes supplied by their source files.
 
 ## Key Interfaces
 - **CLI**

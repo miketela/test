@@ -218,7 +218,7 @@ This preliminary step runs before any other Stage 2 logic to ensure `Tipo_Facili
             - (`Id_Documento`, `Tipo_Facilidad`).
         *   Normalize key parts (digits‑only/trim) to avoid false positives/negatives.
         *   Export: `INC_REPEATED_CARD_TDC_AT12_[YYYYMMDD].csv`.
-    4.  **Output shaping:** enforce dot-decimal strings (e.g., `18000.00`), trim CIS/guarantee identifiers, set `País_Emisión = '591'` and drop auxiliary accounting columns (`ACMON`, `ACIMP2`, `ACNGA`, `ACCIS`, `LIMITE`, `SALDO`) so the layout ends at `Descripción de la Garantía`.
+    4.  **Output shaping:** enforce dot-decimal strings (e.g., `18000.00`), trim CIS/guarantee identifiers, respect any existing `País_Emisión` value (no forced constant), and drop auxiliary accounting columns (`ACMON`, `ACIMP2`, `ACNGA`, `ACCIS`, `LIMITE`, `SALDO`) so the layout ends at `Descripción de la Garantía`.
 
 *Example `Numero_Garantia` (per run)*
 
@@ -250,7 +250,7 @@ Detailed Process (Logic):
         * Any record whose dates are modified during the "Date Mapping" step is exported to a dedicated incident file.
         * File Name: DATE_MAPPING_CHANGES_SOBREGIRO_[YYYYMMDD].csv. Content: includes all columns of the modified rows, plus additional columns to preserve the original values for traceability: Fecha_Ultima_Actualizacion_ORIGINAL and Fecha_Vencimiento_ORIGINAL.
 
-Post-processing trims stray spaces in `Numero_Garantia`/`Numero_Cis_Garantia`, forces `Pais_Emision='591'` when present, and leaves all monetary fields with dot decimal notation (two digits) without thousand separators.
+Post-processing trims stray spaces in `Numero_Garantia`/`Numero_Cis_Garantia`, preserves any provided `Pais_Emision`, and leaves all monetary fields with dot decimal notation (two digits) without thousand separators.
 
 **2.3. `VALORES_AT12` (Securities) Generation**
 *   **Objective:** Build the final VALORES dataset with the regulatory layout, enforcing 0507-specific rules.
@@ -261,7 +261,7 @@ Post-processing trims stray spaces in `Numero_Garantia`/`Numero_Cis_Garantia`, f
         *   `Id_Documento`: if the text matches `Linea Sobregiro de la cuenta {Numero_Prestamo}`, replace it with the normalized loan identifier; otherwise zero-pad the digits extracted from the source value.
     3.  **Tipo_Facilidad resolution:** Reuse the AT03 join rule from TDC/SOBREGIRO. Join against `AT03_CREDITOS` (and `AT03_TDC` when provided). Matches → `Tipo_Facilidad = '01'`; non-matches → `'02'`. Changes are exported as `FACILIDAD_FROM_AT03_VALORES` incidences.
     4.  **Numero_Garantia assignment:** Generate padded 10-digit numbers using the sequence registry. If TDC guarantees were assigned in the same run, start at `last_tdc + 500`; otherwise pull from the persistent registry (`valores_numero_garantia.json`). Each assignment is logged as `VALORES_NUMERO_GARANTIA_GENERATION`.
-    5.  **Constants & derived fields:** Stamp `Clave_Pais=24`, `Clave_Empresa=24`, `Clave_Tipo_Garantia=3`, `Clave_Subtipo_Garantia=61`, `Clave_Tipo_Pren_Hipo=NA`, `Tipo_Instrumento=NA`, `Tipo_Poliza=NA`, `Status_Garantia=0`, `Status_Prestamo=-1`, `Calificacion_Emisor=NA`, `Calificacion_Emisision=NA`, `Segmento=PRE`, and force `Pais_Emision='591'`. Mirror identifiers: `Numero_Cis_Prestamo = Numero_Cis_Garantia`, `Numero_Ruc_Prestamo = Numero_Ruc_Garantia`.
+    5.  **Constants & derived fields:** Stamp `Clave_Pais=24`, `Clave_Empresa=24`, `Clave_Tipo_Garantia=3`, `Clave_Subtipo_Garantia=61`, `Clave_Tipo_Pren_Hipo=NA`, `Tipo_Instrumento=NA`, `Tipo_Poliza=NA`, `Status_Garantia=0`, `Status_Prestamo=-1`, `Calificacion_Emisor=NA`, `Calificacion_Emisision=NA`, `Segmento=PRE`, and force `Pais_Emision='591'` (this constant assignment is exclusive to VALORES). Mirror identifiers: `Numero_Cis_Prestamo = Numero_Cis_Garantia`, `Numero_Ruc_Prestamo = Numero_Ruc_Garantia`.
     6.  **Importe enforcement:** Force `Importe = Valor_Garantia` using the normalized numeric series. If any discrepancy remains, the transformation aborts with a fatal error (incidence severity `error`).
     7.  **Output formatting:** Emit the 37-column regulatory layout (mirroring the target schema) with dot decimal strings (no thousand separators, no trailing zeros). Any columns missing in the source are injected as empty strings so downstream consumers always receive the enriched layout (`Clave_*`, statuses, mirrored CIS/RUC, etc.).
 

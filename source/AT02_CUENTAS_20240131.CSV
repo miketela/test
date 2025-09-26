@@ -1,4 +1,0 @@
-Fecha,Cod_banco,Cod_Subsidiaria,Tipo_Deposito,Tipo_Cliente,Tasa,Origen,Cod_region,Fecha_Inicio,Fecha_Vencimiento,Monto,Monto_Pignorado,Numero_renovacion,Fecha_Renovacion,Intereses_por_Pagar,Periodicidad_pago_intereses,Identificacion_cliente,Identificacion_Cuenta,Actividad,Tamano_Empresa,Genero,Beneficiario_declarado,Estatus_actividad_movimiento,Identificacion_cliente_2,Tipo_Producto,Subproducto,Fecha_proceso,Moneda,Importe,Importe_por_pagar,Segmento
-20240131,001,00,01,01,0.0,0,01,20230101,20231231,0,0,0,,0,0,CL1,000123,ACT,SME,M,NULL,ACT,CL1P,TP1,SP1,20240101,USD,0,0,PRE
-20240131,001,00,01,01,0.0,0,01,20230401,20251231,0,0,0,,0,0,CL1,123,ACT,SME,M,NULL,ACT,CL1P,TP1,SP1,20240101,USD,0,0,PRE
-20240131,001,00,01,01,0.0,0,01,20230501,20251231,0,0,0,,0,0,CL2,ABC456,ACT,SME,M,NULL,ACT,CL2P,TP1,SP1,20240101,USD,0,0,PRE
